@@ -13,6 +13,7 @@ workflow runs (and is tested) without an API key.
 from __future__ import annotations
 
 import copy
+from contextlib import aclosing
 import json
 import logging
 from dataclasses import dataclass, field
@@ -110,6 +111,7 @@ class AnthropicLLM(LLM):
         self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
         self._no_forced_tool: set[str] = set()
         self._no_disabled_thinking: set[str] = set()
+        self._no_effort: set[str] = set()
 
     @staticmethod
     def _blocks(content: Any) -> list[dict]:
@@ -119,13 +121,15 @@ class AnthropicLLM(LLM):
         tool_name = kwargs["tools"][0]["name"]
         if force and model not in self._no_forced_tool:
             try:
-                return await self.client.messages.create(model=model, tool_choice={"type": "tool", "name": tool_name}, **kwargs)
+                return await self.client.messages.create(
+                    model=model, tool_choice={"type": "tool", "name": tool_name, "disable_parallel_tool_use": True}, **kwargs
+                )
             except self._anthropic.BadRequestError as exc:
                 if "tool_choice" not in str(exc):
                     raise
                 log.info("%s does not accept a forced tool_choice; using auto", model)
                 self._no_forced_tool.add(model)
-        return await self.client.messages.create(model=model, tool_choice={"type": "auto"}, **kwargs)
+        return await self.client.messages.create(model=model, tool_choice={"type": "auto", "disable_parallel_tool_use": True}, **kwargs)
 
     async def structured(
         self,
@@ -143,11 +147,12 @@ class AnthropicLLM(LLM):
         system = f"{system}\n\nAlways answer by calling the {tool_name} tool exactly once."
         messages: list[dict] = [{"role": "user", "content": content}]
         last_error: Optional[str] = None
+        budget = max_tokens + (8000 if role != "fast" else 0)  # room for adaptive thinking
         for attempt in range(3):
             resp = await self._create(
                 model,
                 force=role == "fast",
-                max_tokens=max_tokens + (8000 if role != "fast" else 0),  # room for adaptive thinking
+                max_tokens=budget,
                 system=system,
                 messages=messages,
                 tools=[tool],
@@ -155,6 +160,12 @@ class AnthropicLLM(LLM):
             block = next((b for b in resp.content if b.type == "tool_use" and b.name == tool_name), None)
             if block is None:
                 last_error = f"model did not call {tool_name} (stop_reason={resp.stop_reason})"
+                if resp.stop_reason == "max_tokens":
+                    # Ran out of room (usually while thinking). Echoing a truncated turn back
+                    # would not help; ask again with more room. The SDK refuses
+                    # non-streaming requests much above 21k tokens, so stop below that.
+                    budget = min(budget * 2, 20000)
+                    continue
                 messages = messages + [
                     {"role": "assistant", "content": self._blocks(resp.content) or [{"type": "text", "text": "..."}]},
                     {"role": "user", "content": f"Call the {tool_name} tool now with your answer."},
@@ -165,6 +176,7 @@ class AnthropicLLM(LLM):
             except ValidationError as exc:
                 last_error = str(exc)
                 log.warning("structured output failed validation (attempt %s): %s", attempt + 1, exc)
+                # Every tool_use in the echoed turn needs a tool_result, or the API rejects it.
                 messages = messages + [
                     {"role": "assistant", "content": self._blocks(resp.content)},
                     {
@@ -172,10 +184,12 @@ class AnthropicLLM(LLM):
                         "content": [
                             {
                                 "type": "tool_result",
-                                "tool_use_id": block.id,
+                                "tool_use_id": b.id,
                                 "is_error": True,
                                 "content": f"Validation failed, call {tool_name} again with corrected input: {exc}",
                             }
+                            for b in resp.content
+                            if b.type == "tool_use"
                         ],
                     },
                 ]
@@ -187,16 +201,34 @@ class AnthropicLLM(LLM):
         if model not in self._no_disabled_thinking:
             # A phone call cannot wait for the model to think; Haiku 5.5 allows turning it off.
             kwargs["thinking"] = {"type": "disabled"}
-        try:
-            async for ev in self._stream_turn(kwargs):
-                yield ev
-        except self._anthropic.BadRequestError as exc:
-            if "thinking" not in str(exc) or "thinking" not in kwargs:
-                raise
-            self._no_disabled_thinking.add(model)
-            kwargs.pop("thinking")
-            async for ev in self._stream_turn(kwargs):
-                yield ev
+        else:
+            kwargs["max_tokens"] = 2000  # leave room for adaptive thinking before the reply
+        if model not in self._no_effort:
+            kwargs["output_config"] = {"effort": "low"}  # short, fast replies suit a phone call
+        for _ in range(3):
+            yielded = False
+            try:
+                async with aclosing(self._stream_turn(kwargs)) as events:
+                    async for ev in events:
+                        yielded = True
+                        yield ev
+                return
+            except self._anthropic.BadRequestError as exc:
+                # These are raised when the stream opens, before any speech, so a
+                # retry cannot repeat words. Drop the setting this model rejects.
+                text = str(exc)
+                if yielded:
+                    raise
+                if "output_config" in kwargs and ("effort" in text or "output_config" in text):
+                    self._no_effort.add(model)
+                    kwargs.pop("output_config")
+                elif "thinking" in kwargs and "thinking" in text:
+                    self._no_disabled_thinking.add(model)
+                    kwargs.pop("thinking")
+                    kwargs["max_tokens"] = 2000
+                else:
+                    raise
+        raise LLMError(f"{model} rejected the voice request settings")
 
     async def _stream_turn(self, kwargs: dict[str, Any]) -> AsyncIterator[VoiceEvent]:
         async with self.client.messages.stream(**kwargs) as stream:

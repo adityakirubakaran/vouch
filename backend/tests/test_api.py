@@ -125,29 +125,109 @@ def test_twilio_webhooks_require_valid_signature(client_factory):
     assert c.post("/twilio/status?call_id=call_x", data=params, headers={"X-Twilio-Signature": sig}).status_code == 204
 
 
-def test_twilio_conversation_relay_session(client_factory):
+TWILIO = dict(
+    call_channel="twilio", twilio_account_sid="AC123", twilio_auth_token="secret", twilio_from_number="+14155550100",
+    public_base_url="https://vouch.test", twilio_amd=False, call_ring_timeout_seconds=30,
+)
+
+
+@pytest.fixture
+def fake_dial(monkeypatch):
+    """Stand in for Twilio's REST API. Set .error to make dialing fail."""
+
+    class Dialer:
+        error: Exception | None = None
+        dialed: list[str] = []
+
+        async def create_call(self_client, to, twiml, call_id, public_base):  # noqa: N805
+            Dialer.dialed.append(call_id)
+            if Dialer.error:
+                raise Dialer.error
+            return f"CA{len(Dialer.dialed)}"
+
+        async def hangup(self_client, sid):  # noqa: N805
+            return None
+
+    Dialer.dialed = []
+    monkeypatch.setattr("vouch.calls.TwilioClient.create_call", Dialer.create_call)
+    monkeypatch.setattr("vouch.calls.TwilioClient.hangup", Dialer.hangup)
+    return Dialer
+
+
+def twilio_calls(c, app_id, status="ringing"):
+    d = c.get(f"/api/applications/{app_id}").json()
+    return [call for r in d["references"] for call in r["calls"] if call["channel"] == "twilio" and call["status"] == status]
+
+
+def test_twilio_conversation_relay_session(client_factory, fake_dial):
     """Drive the Twilio relay endpoint exactly as ConversationRelay would."""
-    c = client_factory(call_channel="browser", call_ring_timeout_seconds=30)
+    c = client_factory(**TWILIO)
     app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
-    call = wait_until(lambda: c.get("/api/calls/ringing").json())[0]
-    script = persona_for(call["reference_company"])["attempts"][-1]["script"]
+    call = wait_until(lambda: twilio_calls(c, app_id))[0]
+    ref = next(r for r in c.get(f"/api/applications/{app_id}").json()["references"] if any(x["id"] == call["id"] for x in r["calls"]))
+    script = persona_for(ref["company"])["attempts"][-1]["script"]
     with c.websocket_connect("/twilio/relay") as ws:
-        ws.send_text(json.dumps({"type": "setup", "callSid": "CA123", "customParameters": {"call_id": call["id"]}}))
+        ws.send_text(json.dumps({"type": "setup", "callSid": "CA1", "customParameters": {"call_id": call["id"]}}))
         lines = iter(script)
         # Twilio already spoke the welcome greeting, so we answer first.
         ws.send_text(json.dumps({"type": "prompt", "voicePrompt": next(lines), "last": True}))
-        tokens = ""
         while True:
             msg = json.loads(ws.receive_text())
             if msg["type"] == "end":
                 assert json.loads(msg["handoffData"])["reason"] == "completed"
                 break
-            tokens += msg["token"]
             if msg["last"]:
                 ws.send_text(json.dumps({"type": "prompt", "voicePrompt": next(lines), "last": True}))
     got = wait_until(lambda: (r := c.get(f"/api/calls/{call['id']}").json())["status"] == "ended" and r)
     assert got["outcome"] == "completed"
-    assert got["result"]["findings"]["avg_days_to_pay"] in (28, 31)
+    assert got["result"]["findings"]["high_credit"] in (40000, 20000)
+
+
+def test_twilio_relay_refuses_calls_it_should_not_take(client_factory, fake_dial):
+    """A late answer on a call that already ended, an unknown id, or a non-Twilio
+    call must not start an interview."""
+    c = client_factory(**TWILIO)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    call = wait_until(lambda: twilio_calls(c, app_id))[0]
+    c.post("/twilio/status?call_id=" + call["id"], data={"CallStatus": "busy", "CallSid": "CA1"},
+           headers={"X-Twilio-Signature": expected_signature("secret", f"https://vouch.test/twilio/status?call_id={call['id']}", {"CallStatus": "busy", "CallSid": "CA1"})})
+    wait_until(lambda: c.get(f"/api/calls/{call['id']}").json()["status"] == "ended")
+    for call_id in (call["id"], "call_unknown"):
+        with c.websocket_connect("/twilio/relay") as ws:
+            ws.send_text(json.dumps({"type": "setup", "callSid": "CA9", "customParameters": {"call_id": call_id}}))
+            assert json.loads(ws.receive_text())["type"] == "end"
+    assert c.get(f"/api/calls/{call['id']}").json()["outcome"] == "no_answer"  # not revived
+
+
+def test_twilio_dial_failure_retries_promptly(client_factory, fake_dial):
+    """If Twilio refuses the call, the step moves on in seconds, not after the
+    ten-minute call timeout."""
+    fake_dial.error = RuntimeError("21219: unverified number")
+    c = client_factory(**TWILIO)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "ready_for_review" and d, timeout=20)
+    called = [r for r in detail["references"] if not r["flagged"]]
+    assert all(r["status"] == "unreachable" and len(r["calls"]) == 3 for r in called)
+    assert detail["decision_detail"]["decision"] == "request_info"
+
+
+def test_reference_hanging_up_early_is_retried(client_factory):
+    """A browser call that drops before the agent gets the numbers is not a
+    completed reference."""
+    c = client_factory(call_channel="browser", call_ring_timeout_seconds=30)
+    c.post("/api/applications/from-sample", json={"sample_id": "acme"})
+    call = wait_until(lambda: c.get("/api/calls/ringing").json())[0]
+    with c.websocket_connect(f"/ws/phone/{call['id']}") as ws:
+        ws.send_text(json.dumps({"type": "setup"}))
+        while not json.loads(ws.receive_text())["last"]:
+            pass
+        ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "Sure, go ahead.", "last": True}))
+        while not json.loads(ws.receive_text())["last"]:
+            pass
+    ended = wait_until(lambda: (r := c.get(f"/api/calls/{call['id']}").json())["status"] == "ended" and r)
+    assert ended["outcome"] == "failed"
+    retry = wait_until(lambda: [r for r in c.get("/api/calls/ringing").json() if r["reference_company"] == call["reference_company"]])
+    assert retry[0]["id"] != call["id"]
 
 
 def test_call_channel_chosen_before_verification_applies(client_factory):

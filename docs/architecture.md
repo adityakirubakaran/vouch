@@ -23,14 +23,14 @@ Everything that matters is in the database, never only in memory:
 A step is a row with a `kind` (extract, verify, call, bank, memo, sync), a list of steps it depends on, and a JSON `state` its handler owns. A loop polls for steps that are pending and due, runs up to eight handlers concurrently, and records what each returned:
 
 - `Done(result)`: finished. The workflow's `after_step` hook adds the next steps in the same transaction.
-- `Wait(reason, timeout)`: park until `engine.signal(step_id, payload)` is called (call ended, email arrived) or the timeout passes.
+- `Wait(reason, timeout)`: park until `engine.signal(step_id, payload)` is called (call ended, email arrived) or the timeout passes. A signal that arrives while the handler is still running (a call that fails while it is being dialed) is held, and the step runs again as soon as the handler returns instead of parking.
 - `Retry(after, reason)`: run again at a later time (the reference did not pick up). The time is stored, so it survives restarts.
 - `Skip(reason)`: not needed (no bank on the application).
-- Raising `StepFailed` fails immediately; any other exception retries with backoff up to `max_attempts`.
+- Raising `StepFailed` fails immediately; any other exception retries with backoff up to `max_attempts`. Only handler errors count toward that limit, so a step that waits and wakes several times keeps its full retry budget.
 
 A dependency can be soft (the memo runs even if a call ended unreachable) or required (`state.requires`: the memo never runs if verification failed).
 
-On startup, steps that were `running` go back to `pending` (handlers are idempotent), and calls that were live are recorded as failed so their steps retry. `tests/test_flow.py::test_restart_resumes_waiting_steps` stops the engine mid-application and finishes it in a new process.
+On startup, steps that were `running` go back to `pending` (handlers are idempotent), and calls that were live are recorded as failed so their steps retry; any Twilio call still ringing is hung up. `tests/test_flow.py::test_restart_resumes_waiting_steps` stops the engine mid-application and finishes it in a new process.
 
 Why not Temporal or Celery: the workload is a few steps per application that mostly wait. A 300-line engine over SQLite is easy to read, has no extra services to run for a demo, and its semantics are covered by `tests/test_engine.py`.
 
@@ -44,6 +44,9 @@ extract ─┬─► verify ─► call(ref) × verified refs ─┐
 - **extract** sends the PDF (or image) to Claude as a `document` block with a forced `record_credit_application` tool whose input schema is the `CreditApplication` Pydantic model. The output is validated; on a validation error Claude gets the error back once to correct it.
 - **verify** looks up the applicant and each reference (registry, domain registration date, phone numbers on the website) and runs the fraud rules. It writes a display row set per reference and evidence rows, then creates one call step per unflagged reference.
 - **call** places an attempt and waits. When the call ends it decides: completed (save findings), declined or wrong number (done), or no answer / voicemail / callback requested (retry until `CALL_MAX_ATTEMPTS`).
+  - A call that ends before the agent hears a high credit figure (the line dropped, the reference hung up) counts as failed and is retried, not recorded as a finished reference.
+  - If Claude errors mid-reply, the turn is retried once. If that fails too, the agent apologizes, hangs up, and the reference is called back later.
+  - The Twilio relay only accepts live Twilio calls. A late answer on a call that already ended is hung up instead of interviewed.
 - **bank** emails the request and waits for a reply or the timeout, then has Claude read the reply into `BankFindings`.
 - **memo** runs the credit policy, then asks Claude for the narrative (falls back to a template if Claude is unavailable).
 - **sync** runs after an analyst approves: QuickBooks or the local ledger.
@@ -56,7 +59,7 @@ extract ─┬─► verify ─► call(ref) × verified refs ─┐
 |---|---|---|
 | in | `setup` | call connected (carries `customParameters.call_id`) |
 | in | `prompt {voicePrompt, last}` | what the reference said |
-| in | `interrupt {utteranceUntilInterrupt}` | they talked over the agent; history is trimmed to what they heard |
+| in | `interrupt {utteranceUntilInterrupt}` | they talked over the agent; the agent stops streaming and history is trimmed to what they heard |
 | out | `text {token, last}` | streamed agent speech |
 | out | `end {handoffData}` | hang up |
 

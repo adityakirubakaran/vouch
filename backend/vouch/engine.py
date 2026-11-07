@@ -168,9 +168,15 @@ class Engine:
 
     def signal(self, step_id: str, payload: dict) -> bool:
         """Deliver an external event (call ended, email arrived, human action) to a
-        waiting step. Returns False if the step is not waiting."""
+        waiting step. A signal that arrives while the handler is still running (a
+        call that fails while it is being dialed) is held, and the step runs again
+        as soon as the handler returns instead of parking. Returns False if the
+        step is neither waiting nor running."""
         with self.db.session() as s:
             step = s.get(Step, step_id)
+            if step is not None and step.status == "running":
+                step.signal = payload
+                return True
             if step is None or step.status != "waiting":
                 return False
             step.signal = payload
@@ -298,6 +304,7 @@ class Engine:
                     signal=step.signal,
                     engine=self,
                 )
+                step.signal = None  # free the slot for a signal that arrives mid-run
                 app_id, kind, ref_id = step.application_id, step.kind, step.reference_id
             self._publish_step(step_id, app_id, kind, ref_id, "running")
             handler = self.handlers.get(kind)
@@ -305,14 +312,19 @@ class Engine:
                 if handler is None:
                     raise StepFailed(f"no handler for step kind {kind}")
                 outcome = await handler(ctx)
+                ctx.state.pop("_errors", None)
                 self._record(step_id, ctx, outcome)
             except StepFailed as exc:
                 self._fail(step_id, ctx, str(exc))
             except Exception as exc:  # noqa: BLE001
                 log.error("step %s (%s) raised: %s\n%s", step_id, kind, exc, traceback.format_exc())
+                # Count consecutive handler errors, not dispatches: a step that waits
+                # and wakes up several times still gets its full retry budget.
+                errors = int(ctx.state.get("_errors", 0)) + 1
+                ctx.state["_errors"] = errors
                 max_attempts = ctx.state.get("max_attempts", self.max_attempts)
-                if ctx.attempts < max_attempts:
-                    self._record(step_id, ctx, Retry(after_seconds=2 ** ctx.attempts, reason=f"error: {exc}"))
+                if errors < max_attempts:
+                    self._record(step_id, ctx, Retry(after_seconds=2 ** errors, reason=f"error: {exc}"))
                 else:
                     self._fail(step_id, ctx, f"{type(exc).__name__}: {exc}")
             finally:
@@ -326,9 +338,17 @@ class Engine:
             step = s.get(Step, step_id)
             assert step is not None
             step.state = ctx.state
+            early_signal = step.signal  # delivered while the handler ran
             step.signal = None
             step.error = None
-            if isinstance(outcome, Done):
+            if isinstance(outcome, Wait) and early_signal is not None:
+                # What we were about to wait for already happened: run again now.
+                step.status = "pending"
+                step.signal = early_signal
+                step.wait_reason = outcome.reason
+                step.next_run_at = None
+                step.timeout_at = None
+            elif isinstance(outcome, Done):
                 step.status = "done"
                 step.result = outcome.result
                 step.wait_reason = None

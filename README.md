@@ -101,7 +101,7 @@ Create an app at developer.intuit.com, add `http://localhost:8000/api/integratio
 make test
 ```
 
-The backend suite (41 tests, about 15 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, and how the Claude client handles the 5.5 models' tool-choice rules.
+The backend suite (52 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
 
 `make smoke` is the live check: with your API key it has Claude read both sample scans and compares every field with the answer key, then runs one application end to end.
 

@@ -24,7 +24,7 @@ class TwilioClient:
             ("To", to),
             ("From", self.settings.twilio_from_number or ""),
             ("Twiml", twiml),
-            ("Timeout", str(self.settings.call_ring_timeout_seconds)),
+            ("Timeout", str(max(5, int(self.settings.call_ring_timeout_seconds)))),  # Twilio wants whole seconds
             ("StatusCallback", f"{public_base}/twilio/status?call_id={call_id}"),
             ("StatusCallbackMethod", "POST"),
         ]

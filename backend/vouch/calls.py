@@ -126,14 +126,35 @@ class RelaySession:
         self.end_hint: Optional[dict] = None
         self._live_task: Optional[asyncio.Task] = None
         self._live_dirty = False
+        self._inbox: "asyncio.Queue[Optional[dict]]" = asyncio.Queue()
+        self._reader: Optional[asyncio.Task] = None
+        self._barge_in = False  # set by the reader the moment an interrupt arrives
+
+    async def _read(self, transport: Transport) -> None:
+        """Read the socket in its own task so an interrupt is seen while the agent
+        is still streaming its reply, not after."""
+        while True:
+            msg = await transport.receive()
+            if msg is not None and msg.get("type") == "interrupt":
+                self._barge_in = True
+            await self._inbox.put(msg)
+            if msg is None:
+                return
 
     async def run(self, transport: Transport, setup: Optional[dict] = None) -> None:
+        started = False
         try:
             if setup is None:
                 setup = await transport.receive()
                 if setup is None:
                     return
-            self.s.calls.mark_in_progress(self.ctx.call_id, (setup or {}).get("callSid"))
+            if not self.s.calls.mark_in_progress(self.ctx.call_id, (setup or {}).get("callSid")):
+                # This call already ended (timed out, failed, or Vouch restarted). Do not
+                # interview the reference on a call the workflow has moved past.
+                await transport.send({"type": "end", "handoffData": json.dumps({"reason": "call_closed"})})
+                return
+            started = True
+            self._reader = asyncio.create_task(self._read(transport))
             text = voice.greeting(self.ctx.seller, self.ctx.applicant, self.ctx.contact_name)
             if not self.greeting_spoken:
                 await self._speak(transport, text)
@@ -143,7 +164,7 @@ class RelaySession:
             pending_user = ""
             turns = 0
             while True:
-                msg = await transport.receive()
+                msg = await self._inbox.get()
                 if msg is None:
                     break
                 kind = msg.get("type")
@@ -170,9 +191,14 @@ class RelaySession:
                     log.warning("relay error on %s: %s", self.ctx.call_id, msg.get("description"))
         except Exception:  # noqa: BLE001
             log.exception("relay session %s crashed", self.ctx.call_id)
+            if self.end_hint is None:
+                self.end_hint = {"reason": "failed"}
         finally:
+            if self._reader is not None:
+                self._reader.cancel()
             await transport.close()
-            await self._finalize()
+            if started:
+                await self._finalize()
 
     def _time_scale(self) -> float:
         # Real phone calls need real pauses; simulated ones can run fast in tests.
@@ -186,19 +212,50 @@ class RelaySession:
             await transport.send({"type": "text", "token": w + (" " if i < len(words) - 1 else ""), "last": i == len(words) - 1})
 
     async def _agent_turn(self, transport: Transport, system: str) -> Optional[dict]:
+        """One reply from the agent. A Claude error mid-stream (an overloaded API, a
+        dropped connection) is retried once; history only changes after a reply
+        finishes, so the retry sees the same conversation. If the retry fails too,
+        the agent apologizes and hangs up, and the call is retried later."""
+        self._barge_in = False
+        for attempt in range(2):
+            try:
+                return await self._stream_reply(transport, system)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("agent turn failed on %s (attempt %s): %s", self.ctx.call_id, attempt + 1, exc)
+                if attempt == 0:
+                    await asyncio.sleep(0.5 * self._time_scale())
+        said = "Sorry, I'm having trouble on my end. We'll call you back another time. Thank you."
+        await transport.send({"type": "text", "token": said, "last": False})
+        await transport.send({"type": "text", "token": " ", "last": True})
+        self.history.append({"role": "assistant", "content": said})
+        self._add_turn("agent", said)
+        return {"reason": "failed"}
+
+    async def _stream_reply(self, transport: Transport, system: str) -> Optional[dict]:
         parts: list[str] = []
         tool: Optional[dict] = None
-        async for ev in self.s.llm.voice_turn(system=system, messages=self.history, tools=[voice.END_CALL_TOOL]):
-            if ev.kind == "text" and ev.text:
-                parts.append(ev.text)
-                await transport.send({"type": "text", "token": ev.text, "last": False})
-                self.s.bus.publish(
-                    "call.token", application_id=self.ctx.application_id, persist=False,
-                    data={"call_id": self.ctx.call_id, "reference_id": self.ctx.reference_id, "token": ev.text},
-                )
-            elif ev.kind == "tool" and ev.tool_name == "end_call":
-                tool = ev.tool_input
+        stream = self.s.llm.voice_turn(system=system, messages=self.history, tools=[voice.END_CALL_TOOL])
+        try:
+            async for ev in stream:
+                if self._barge_in:
+                    break  # the reference started talking: stop sending speech
+                if ev.kind == "text" and ev.text:
+                    parts.append(ev.text)
+                    await transport.send({"type": "text", "token": ev.text, "last": False})
+                    self.s.bus.publish(
+                        "call.token", application_id=self.ctx.application_id, persist=False,
+                        data={"call_id": self.ctx.call_id, "reference_id": self.ctx.reference_id, "token": ev.text},
+                    )
+                elif ev.kind == "tool" and ev.tool_name == "end_call":
+                    tool = ev.tool_input
+        finally:
+            await stream.aclose()  # type: ignore[attr-defined]
         said = "".join(parts).strip()
+        if self._barge_in:
+            await transport.send({"type": "text", "token": " ", "last": True})
+            self.history.append({"role": "assistant", "content": (said or "...") + " [interrupted]"})
+            self._add_turn("agent", said or "...")
+            return None  # never hang up on someone who is mid-sentence
         if not said:
             said = "Thank you for your time. Goodbye." if tool else "Sorry, could you say that again?"
             await transport.send({"type": "text", "token": said, "last": False})
@@ -263,6 +320,12 @@ class RelaySession:
             result = CallResult(outcome="voicemail", summary="Reached voicemail.")
         elif not spoke:
             result = CallResult(outcome="no_answer", summary="The call connected but no one spoke.")
+        elif (self.end_hint or {}).get("reason") == "failed":
+            live = self.s.calls.live_findings(self.ctx.call_id) or {}
+            result = CallResult(
+                outcome="failed", findings=ReferenceFindings.model_validate(live),
+                summary="Vouch had a technical problem during the call and will call back.",
+            )
         else:
             try:
                 result = await voice.final_result(self.s.llm, self.ctx.applicant, self.ctx.reference, self.transcript, self.end_hint)
@@ -276,6 +339,11 @@ class RelaySession:
                     alternate_contact=(self.end_hint or {}).get("alternate_contact"),
                     summary="Read from live notes; the final transcript review failed.",
                 )
+        if self.end_hint is None and result.outcome == "completed" and result.findings.high_credit is None:
+            # The line dropped (or the reference hung up) before the agent got the
+            # numbers that matter. Treat it as a call to retry, not a finished reference.
+            result.outcome = "failed"
+            result.summary = f"{result.summary} The call ended before the interview finished.".strip()
         self.s.calls.finish(self.ctx.call_id, result)
 
 
@@ -459,13 +527,21 @@ class CallManager:
                 setattr(call, k, v)
             return call
 
-    def mark_in_progress(self, call_id: str, provider_sid: Optional[str] = None) -> None:
-        call = self._set(call_id, status="in_progress", started_at=utcnow())
-        if provider_sid and call and not call.provider_sid:
-            self._set(call_id, provider_sid=provider_sid)
-        if call:
-            self.s.bus.publish("call.updated", "Reference picked up", application_id=call.application_id,
-                               data={"call_id": call_id, "reference_id": call.reference_id, "status": "in_progress"})
+    def mark_in_progress(self, call_id: str, provider_sid: Optional[str] = None) -> bool:
+        """Mark a call as answered. Returns False (and changes nothing) if the call
+        is unknown or already ended, so a late answer cannot revive it."""
+        with self.s.db.session() as s:
+            call = s.get(Call, call_id)
+            if call is None or call.status == "ended":
+                return False
+            call.status = "in_progress"
+            call.started_at = utcnow()
+            if provider_sid and not call.provider_sid:
+                call.provider_sid = provider_sid
+            app_id, ref_id = call.application_id, call.reference_id
+        self.s.bus.publish("call.updated", "Reference picked up", application_id=app_id,
+                           data={"call_id": call_id, "reference_id": ref_id, "status": "in_progress"})
+        return True
 
     def save_transcript(self, call_id: str, transcript: list[dict]) -> None:
         self._set(call_id, transcript=[dict(t) for t in transcript])
@@ -591,7 +667,18 @@ class CallManager:
             log.error("twilio dial failed: %s", exc)
             self.finish(call_id, CallResult(outcome="failed", summary=f"Twilio could not place the call: {exc}"))
             return
-        self._set(call_id, provider_sid=sid, status="ringing", ring_deadline=utcnow() + timedelta(seconds=self.s.settings.call_ring_timeout_seconds))
+        with self.s.db.session() as s:
+            call = s.get(Call, call_id)
+            if call is None:
+                return
+            if not call.provider_sid:
+                call.provider_sid = sid
+            # A status callback (busy, failed) can land before create_call returns,
+            # and the reference can even pick up. Only a call still queued moves to ringing.
+            if call.status != "queued":
+                return
+            call.status = "ringing"
+            call.ring_deadline = utcnow() + timedelta(seconds=self.s.settings.call_ring_timeout_seconds)
         self.s.bus.publish("call.ringing", f"Dialing {to}", application_id=ctx.application_id,
                            data={"call_id": call_id, "reference_id": ctx.reference_id, "status": "ringing"})
 
@@ -601,7 +688,12 @@ class CallManager:
             await transport.close()
             return
         call_id = (setup.get("customParameters") or {}).get("call_id")
-        if not call_id:
+        with self.s.db.session() as s:
+            call = s.get(Call, call_id) if call_id else None
+            live = call is not None and call.channel == "twilio" and call.status != "ended"
+        if not live:
+            # Unknown, finished, or not a Twilio call: hang up instead of interviewing anyone.
+            await transport.send({"type": "end", "handoffData": json.dumps({"reason": "call_closed"})})
             await transport.close()
             return
         await RelaySession(self.s, self.context(call_id), greeting_spoken=True).run(transport, setup=setup)
@@ -652,12 +744,24 @@ class CallManager:
 
     def recover_orphans(self) -> int:
         """Calls that were live when the previous process stopped cannot continue:
-        record them as failed so their workflow steps retry."""
+        record them as failed so their workflow steps retry, and hang up any real
+        phone call that may still be ringing so nobody answers into silence."""
         with self.s.db.session() as s:
-            orphans = [c.id for c in s.scalars(select(Call).where(Call.status != "ended")).all()]
-        for call_id in orphans:
+            orphans = [(c.id, c.channel, c.provider_sid) for c in s.scalars(select(Call).where(Call.status != "ended")).all()]
+        for call_id, channel, sid in orphans:
             self.finish(call_id, CallResult(outcome="failed", summary="Vouch restarted during this call; it will be retried."))
+            if channel == "twilio" and sid:
+                try:
+                    self._spawn(self._hangup_sid(sid))
+                except RuntimeError:  # no running event loop (called outside the server)
+                    log.warning("could not hang up orphaned call %s", sid)
         return len(orphans)
+
+    async def _hangup_sid(self, sid: str) -> None:
+        try:
+            await TwilioClient(self.s.settings).hangup(sid)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not hang up orphaned call %s: %s", sid, exc)
 
     async def shutdown(self) -> None:
         for t in list(self._tasks):

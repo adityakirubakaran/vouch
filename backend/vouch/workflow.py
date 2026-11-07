@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -32,6 +33,17 @@ from .util import format_phone, money, normalize_phone
 
 if TYPE_CHECKING:  # pragma: no cover
     from .services import Services
+
+
+def parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
 
 log = logging.getLogger("vouch.workflow")
 
@@ -223,6 +235,8 @@ class Workflow:
             ref = s.get(Reference, ctx.reference_id)
             assert ref is not None
             company = ref.company
+            app_row = s.get(Application, ctx.application_id)
+            app_channel = app_row.call_channel if app_row is not None else None
             active_call = s.get(Call, active) if active else None
             active_status = active_call.status if active_call else None
 
@@ -250,12 +264,21 @@ class Workflow:
         if attempts >= st.call_max_attempts:
             self._set_ref(ctx.reference_id, status="unreachable")
             return Done({"outcome": "unreachable"})
-        channel = self.s.calls.resolve_channel(state.pop("channel", None) or state.get("default_channel"))
+        # The application row is the source of truth for the channel; step state can
+        # be stale if the reviewer switched channels while this handler was running.
+        channel = self.s.calls.resolve_channel(state.pop("channel", None) or app_channel or state.get("default_channel"))
         attempts += 1
         state["call_attempts"] = attempts
         call_id = self.s.calls.create_call(ctx.reference_id, attempts, channel)  # type: ignore[arg-type]
         state["active_call"] = call_id
         await self.s.calls.place(call_id)
+        with self.s.db.session() as s:
+            placed = s.get(Call, call_id)
+            ended = placed is not None and placed.status == "ended"
+            result = CallResult.model_validate(placed.result) if ended and placed.result else None
+        if ended:  # failed while dialing (bad number, Twilio error, busy signal)
+            state["active_call"] = None
+            return self._after_call(ctx, result or CallResult(outcome="failed", summary="The call could not be placed."), call_id)
         return Wait(f"Calling {company} (attempt {attempts})", timeout_seconds=st.call_ring_timeout_seconds + MAX_CALL_SECONDS)
 
     def _after_call(self, ctx: StepContext, result: CallResult, call_id: str):
@@ -359,12 +382,14 @@ class Workflow:
         return self.s.mailer.receive(app_id, from_addr, f"RE: Bank reference request", text, delivery="simulated", reference_id=ref_id)
 
     def _latest_bank_reply(self, app_id: str, sent_at: Optional[str]) -> Optional[tuple[str, str]]:
+        """The newest inbound email that arrived after our request went out."""
+        since = parse_iso(sent_at)
         with self.s.db.session() as s:
             q = select(Email).where(Email.application_id == app_id, Email.direction == "inbound").order_by(Email.created_at.desc())
-            email = s.scalars(q).first()
-            if email is None:
-                return None
-            return email.id, email.body
+            for email in s.scalars(q).all():
+                if since is None or email.created_at is None or email.created_at >= since - timedelta(seconds=1):
+                    return email.id, email.body
+            return None
 
     async def memo(self, ctx: StepContext) -> Done:
         self._status(ctx.application_id, "deciding", "Writing the credit memo")
@@ -485,7 +510,7 @@ class Workflow:
             for ref in refs:
                 if ref.flagged:
                     continue
-                call_state: dict = {"call_attempts": 0, "max_attempts": 50}
+                call_state: dict = {"call_attempts": 0, "max_attempts": 5}
                 if channel:
                     call_state["default_channel"] = channel
                 call = self.s.engine.add_step(s, step.application_id, "call", reference_id=ref.id, depends_on=[step.id], state=call_state)

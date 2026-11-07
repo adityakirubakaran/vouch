@@ -150,3 +150,57 @@ async def test_calling_again_after_the_memo_reopens_the_decision(services):
         app = s.get(Application, app_id)
         assert app.decision["generated_at"] != first
         assert len(next(r for r in app.references if r.company == "Pacific Coffee Roasters").calls) == 2
+
+
+async def test_claude_error_mid_call_is_retried_without_hanging_up(services):
+    """An overloaded API in the middle of a reply is retried once; the reference
+    never notices and the call still completes."""
+    real = services.llm.voice_turn
+    state = {"n": 0}
+
+    async def flaky_turn(**kw):
+        state["n"] += 1
+        if state["n"] == 3:
+            async for ev in real(**kw):
+                yield ev
+                raise RuntimeError("overloaded_error")
+        async for ev in real(**kw):
+            yield ev
+
+    services.llm.voice_turn = flaky_turn  # type: ignore[method-assign]
+    app_id = submit_sample(services, "acme")
+    await wait_for_status(services, app_id, ("ready_for_review", "failed"), timeout=30)
+    with services.db.session() as s:
+        app = s.get(Application, app_id)
+        assert app.status == "ready_for_review", app.error
+        assert state["n"] >= 3
+        outcomes = [c.outcome for r in app.references for c in r.calls]
+        assert "failed" not in outcomes
+        assert app.decision["recommended_limit"] == 25000
+
+
+async def test_claude_down_mid_call_ends_politely_and_calls_back(services):
+    """If the retry fails too, the agent apologizes, hangs up, and the reference is
+    called again later instead of being recorded as complete."""
+    real = services.llm.voice_turn
+    state = {"n": 0}
+
+    async def broken_turn(**kw):
+        state["n"] += 1
+        if state["n"] in (3, 4):
+            raise RuntimeError("overloaded_error")
+        async for ev in real(**kw):
+            yield ev
+
+    services.llm.voice_turn = broken_turn  # type: ignore[method-assign]
+    app_id = submit_sample(services, "acme")
+    await wait_for_status(services, app_id, ("ready_for_review", "failed"), timeout=30)
+    with services.db.session() as s:
+        app = s.get(Application, app_id)
+        assert app.status == "ready_for_review", app.error
+        failed = [c for r in app.references for c in r.calls if c.outcome == "failed"]
+        assert len(failed) == 1
+        assert "trouble on my end" in failed[0].transcript[-1]["text"]
+        ref = s.get(Reference, failed[0].reference_id)
+        assert ref.status == "completed" and ref.calls[-1].outcome == "completed"  # the callback worked
+        assert app.decision["recommended_limit"] == 25000

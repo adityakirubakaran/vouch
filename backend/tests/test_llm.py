@@ -76,7 +76,7 @@ async def test_smart_role_uses_auto_and_nudges_once(tmp_path):
     ])
     out = await call(llm, role="smart")
     assert out.terms == "Net 30"
-    assert stub.calls[0]["tool_choice"] == {"type": "auto"}
+    assert stub.calls[0]["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
     assert "Call the record_reference_findings tool now" in stub.calls[1]["messages"][-1]["content"]
 
 
@@ -102,3 +102,71 @@ async def test_gives_up_after_three_tries(tmp_path):
     llm, _ = make_llm(tmp_path, [no_tool, no_tool, no_tool])
     with pytest.raises(LLMError):
         await call(llm, role="smart")
+
+
+async def test_ran_out_of_tokens_retries_with_more_room_without_echo(tmp_path):
+    llm, stub = make_llm(tmp_path, [
+        message(TextBlock(type="text", text="Thinking about"), stop="max_tokens"),
+        message(tool_block({"high_credit": 40000})),
+    ])
+    out = await call(llm, role="smart")
+    assert out.high_credit == 40000
+    assert stub.calls[1]["messages"] == stub.calls[0]["messages"]  # the truncated turn is not echoed
+    assert stub.calls[1]["max_tokens"] > stub.calls[0]["max_tokens"]
+    assert stub.calls[1]["max_tokens"] <= 20000
+
+
+async def test_validation_retry_answers_every_tool_use(tmp_path):
+    first = ToolUseBlock(id="toolu_A", type="tool_use", name="record_reference_findings", input={"high_credit": "lots"})
+    second = ToolUseBlock(id="toolu_B", type="tool_use", name="record_reference_findings", input={"high_credit": 9000})
+    llm, stub = make_llm(tmp_path, [message(first, second), message(tool_block({"high_credit": 15000}))])
+    out = await call(llm, role="fast")
+    assert out.high_credit == 15000
+    results = stub.calls[1]["messages"][-1]["content"]
+    assert {r["tool_use_id"] for r in results} == {"toolu_A", "toolu_B"}
+    assert stub.calls[0]["tool_choice"]["disable_parallel_tool_use"] is True
+
+
+class StubStream:
+    """Mimics client.messages.stream(): an async context manager with text_stream."""
+
+    def __init__(self, text: str):
+        self.text = text
+
+        async def tokens():
+            for word in text.split(" "):
+                yield word + " "
+
+        self.text_stream = tokens()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get_final_message(self):
+        return message(TextBlock(type="text", text=self.text), stop="end_turn")
+
+
+class StubStreamingMessages:
+    def __init__(self, script):
+        self.script = list(script)
+        self.calls = []
+
+    def stream(self, **kwargs):
+        self.calls.append(kwargs)
+        item = self.script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return StubStream(item)
+
+
+async def test_voice_turn_drops_settings_the_model_rejects(tmp_path):
+    llm = AnthropicLLM(make_settings(tmp_path, vouch_llm="anthropic", anthropic_api_key="sk-test"))
+    stub = StubStreamingMessages([bad_request("output_config.effort is not supported for this model"), "Thanks for that."])
+    llm.client = type("C", (), {"messages": stub})()
+    events = [ev async for ev in llm.voice_turn(system="s", messages=[{"role": "user", "content": "hi"}], tools=[])]
+    assert "".join(e.text or "" for e in events if e.kind == "text").strip() == "Thanks for that."
+    assert stub.calls[0]["output_config"] == {"effort": "low"} and stub.calls[0]["thinking"] == {"type": "disabled"}
+    assert "output_config" not in stub.calls[1] and stub.calls[1]["thinking"] == {"type": "disabled"}

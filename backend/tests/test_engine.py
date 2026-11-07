@@ -154,3 +154,47 @@ async def test_run_now_pulls_retry_forward(tmp_path):
     engine.run_now(sid, {"go": True})
     await engine.run_until_idle()
     assert status(db, sid) == "done"
+
+
+async def test_signal_during_run_is_not_lost(tmp_path):
+    """A call can fail while it is still being dialed. That signal must wake the
+    step right away instead of being dropped while the step parks for minutes."""
+    db, engine = setup_engine(tmp_path)
+    runs = []
+
+    async def handler(ctx):
+        runs.append(ctx.signal)
+        if ctx.signal:
+            return Done({"got": ctx.signal})
+        assert engine.signal(ctx.step_id, {"call_id": "c1"})  # arrives mid-run
+        return Wait("ringing", timeout_seconds=600)
+
+    engine.register("c", handler)
+    sid = add(db, engine, "c")
+    await engine.run_until_idle()
+    assert status(db, sid) == "done" and runs == [None, {"call_id": "c1"}]
+
+
+async def test_wakeups_do_not_use_up_retries(tmp_path):
+    """Retries count handler errors, not how many times a waiting step woke up."""
+    db, engine = setup_engine(tmp_path, max_attempts=2)
+    runs = []
+
+    async def handler(ctx):
+        runs.append(ctx.attempts)
+        if len(runs) == 1:
+            return Wait("email sent")
+        if len(runs) == 2:
+            raise RuntimeError("API overloaded")
+        return Done()
+
+    engine.register("b", handler)
+    sid = add(db, engine, "b")
+    await engine.run_until_idle()
+    engine.signal(sid, {"email": "e1"})
+    for _ in range(80):
+        await engine.run_until_idle()
+        if status(db, sid) in ("done", "failed"):
+            break
+        await asyncio.sleep(0.05)
+    assert status(db, sid) == "done" and len(runs) == 3
