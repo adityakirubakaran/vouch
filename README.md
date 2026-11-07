@@ -4,6 +4,8 @@ Vouch is an AI credit desk for B2B net terms. A customer sends in a credit appli
 
 Built by team AwesomeSauce for the BBS × Ramp Hackathon (Fall 2026).
 
+![Review screen with the recommended limit and cited evidence](docs/screenshots/review.png)
+
 ## The problem
 
 When a new business customer asks to pay on Net 30, someone on the seller's finance team still vets them by hand. The customer fills out a PDF application that lists a bank and three trade references. An analyst retypes it, emails the bank, and calls each reference to ask how much credit they extend and whether the customer pays on time. References are slow to answer because helping another supplier's credit team is nobody's priority, so one approval can take days of phone tag while sales waits.
@@ -38,6 +40,10 @@ flowchart LR
 | Voice | Calls each verified reference and interviews them | Live conversation (Haiku, streamed), live note-taking, final transcript read (Sonnet) | Call retries, voicemail and callback handling |
 | Bank | Requests a bank reference by email | Reads the bank's free-text reply | Request letter template, wait with timeout |
 | Memo | Recommends a decision and limit | Writes the summary, citing evidence IDs | Credit policy (YAML) computes the decision and every number |
+
+![Reference checks: two verified, one flagged](docs/screenshots/reference-checks.png)
+
+![A live reference call with the credit file filling in](docs/screenshots/live-call.png)
 
 ## Design decisions
 
