@@ -148,3 +148,13 @@ def test_twilio_conversation_relay_session(client_factory):
     got = wait_until(lambda: (r := c.get(f"/api/calls/{call['id']}").json())["status"] == "ended" and r)
     assert got["outcome"] == "completed"
     assert got["result"]["findings"]["avg_days_to_pay"] in (28, 31)
+
+
+def test_call_channel_chosen_before_verification_applies(client_factory):
+    c = client_factory(call_ring_timeout_seconds=30)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    assert c.post(f"/api/applications/{app_id}/call-channel", json={"channel": "browser"}).json()["call_channel"] == "browser"
+    ringing = wait_until(lambda: c.get("/api/calls/ringing").json())
+    assert {r["application_id"] for r in ringing} == {app_id}
+    assert c.get(f"/api/applications/{app_id}").json()["call_channel"] == "browser"
+    assert c.post(f"/api/applications/{app_id}/call-channel", json={"channel": "fax"}).status_code == 400

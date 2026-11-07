@@ -44,6 +44,7 @@ async def config(request: Request) -> dict:
             "demo_reference_phone": bool(st.demo_reference_phone),
             "max_attempts": st.call_max_attempts,
             "retry_seconds": st.call_retry_seconds,
+            "ring_timeout_seconds": st.call_ring_timeout_seconds,
         },
         "email": {"mode": st.email_mode, "simulate_bank_reply_seconds": st.simulate_bank_reply_seconds},
         "registry": {"mode": st.registry_mode, "opencorporates": bool(st.opencorporates_api_token), "live_domain_checks": st.live_domain_checks},
@@ -122,7 +123,7 @@ def load_detail(s: Services, app_id: str) -> dict:
         steps = db.scalars(select(Step).where(Step.application_id == app_id).order_by(Step.created_at)).all()
         evidence = db.scalars(select(Evidence).where(Evidence.application_id == app_id).order_by(Evidence.created_at)).all()
         emails = db.scalars(select(Email).where(Email.application_id == app_id).order_by(Email.created_at)).all()
-        return out.detail_out(app, list(steps), list(evidence), list(emails), s.llm.mode)
+        return out.detail_out(app, list(steps), list(evidence), list(emails), s.llm.mode, s.calls.resolve_channel(app.call_channel))
 
 
 @router.get("/applications/{app_id}")
@@ -213,8 +214,11 @@ async def set_call_channel(request: Request, app_id: str, body: ChannelBody) -> 
     if body.channel not in ("simulated", "browser", "twilio"):
         raise HTTPException(400, "channel must be simulated, browser, or twilio")
     s = svc(request)
-    s.workflow.set_default_channel(app_id, body.channel)  # type: ignore[union-attr]
-    return {"ok": True}
+    try:
+        s.workflow.set_default_channel(app_id, body.channel)  # type: ignore[union-attr]
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "call_channel": s.calls.resolve_channel(body.channel)}
 
 
 @router.post("/applications/{app_id}/simulate-bank-reply")

@@ -44,7 +44,7 @@ function Point({ point, evidence, onJump }: { point: MemoPoint; evidence: Eviden
     .filter((e): e is EvidenceOut => Boolean(e));
   return (
     <li>
-      <span>{point.text}</span>
+      <span>{point.text.replace(/\.;\s*/g, ". ")}</span>
       {chips.length > 0 ? (
         <span className="chips">
           {chips.map((ev) => (

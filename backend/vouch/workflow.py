@@ -480,18 +480,21 @@ class Workflow:
         elif step.kind == "verify":
             refs = s.scalars(select(Reference).where(Reference.application_id == step.application_id, Reference.kind == "trade").order_by(Reference.position)).all()
             deps = []
+            app = s.get(Application, step.application_id)
+            channel = app.call_channel if app is not None else None
             for ref in refs:
                 if ref.flagged:
                     continue
-                call = self.s.engine.add_step(s, step.application_id, "call", reference_id=ref.id, depends_on=[step.id],
-                                              state={"call_attempts": 0, "max_attempts": 50})
+                call_state: dict = {"call_attempts": 0, "max_attempts": 50}
+                if channel:
+                    call_state["default_channel"] = channel
+                call = self.s.engine.add_step(s, step.application_id, "call", reference_id=ref.id, depends_on=[step.id], state=call_state)
                 ref.status = "queued"
                 deps.append(call.id)
             bank = s.scalars(select(Step).where(Step.application_id == step.application_id, Step.kind == "bank")).first()
             if bank is not None:
                 deps.append(bank.id)
             self.s.engine.add_step(s, step.application_id, "memo", depends_on=[step.id, *deps], state={"requires": [step.id], "max_attempts": 2})
-            app = s.get(Application, step.application_id)
             if app is not None:
                 app.status = "checking_references"
 
@@ -587,11 +590,19 @@ class Workflow:
         return self.s.engine.run_now(step_id, {"channel": channel} if channel else None)
 
     def set_default_channel(self, application_id: str, channel: str) -> None:
+        """Where this application's calls go. Applies to calls not yet placed,
+        including references that verification has not cleared yet."""
         with self.s.db.session() as s:
+            app = s.get(Application, application_id)
+            if app is None:
+                raise ValueError("Unknown application")
+            app.call_channel = channel
             for step in s.scalars(select(Step).where(Step.application_id == application_id, Step.kind == "call")).all():
                 state = dict(step.state or {})
                 state["default_channel"] = channel
                 step.state = state
+        self.s.bus.publish("application.call_channel", f"Calls now go to the {channel} phone line", application_id=application_id,
+                           data={"call_channel": channel}, persist=False)
 
     def _set_ref(self, ref_id: Optional[str], **fields) -> None:
         if not ref_id:

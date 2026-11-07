@@ -552,7 +552,7 @@ p {
 
 .kv {
   display: grid;
-  grid-template-columns: minmax(130px, 40%) 1fr;
+  grid-template-columns: minmax(170px, 45%) 1fr;
   column-gap: 16px;
   row-gap: 0;
 }

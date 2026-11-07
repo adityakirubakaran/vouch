@@ -5,11 +5,6 @@ export function money(value: number | null | undefined): string {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-export function moneyOrDash(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  return money(value);
-}
-
 export function requestLine(limit: number | null, terms: string | null): string {
   if (limit === null && !terms) return "No amount requested";
   if (limit === null) return `Requested ${terms}`;

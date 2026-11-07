@@ -307,6 +307,7 @@ export interface ApplicationDetail extends ApplicationSummary {
   emails: EmailOut[];
   document_url: string;
   llm_mode: "anthropic" | "fake";
+  call_channel: CallChannel; // where this application's calls go (falls back to browser if Twilio is not set up)
 }
 
 export interface ActivityEvent {
@@ -355,6 +356,7 @@ export interface AppConfig {
     demo_reference_phone: boolean;
     max_attempts: number;
     retry_seconds: number;
+    ring_timeout_seconds: number;
   };
   email: { mode: "outbox" | "smtp"; simulate_bank_reply_seconds: number };
   registry: { mode: "sandbox" | "opencorporates"; opencorporates: boolean; live_domain_checks: boolean };

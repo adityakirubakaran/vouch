@@ -242,7 +242,7 @@ export function CallPanel({
         <div className="retry-bar">
           <span>
             {retryIn !== null
-              ? `${step?.wait_reason ?? "Waiting"}. Calling again in ${countdown(retryIn)}.`
+              ? `${(step?.wait_reason ?? "Waiting").replace(/, trying again$/, "")}. Calling again in ${countdown(retryIn)}.`
               : calls.length === 0
                 ? "Waiting to call."
                 : r.summary ?? REF_STATUS_LABEL[r.status]}
@@ -258,7 +258,14 @@ export function CallPanel({
       ) : null}
       {error ? <p className="error-text" style={{ marginBottom: 12 }}>{error}</p> : null}
 
-      {call ? (
+      {call && call.status === "ended" && call.transcript.length === 0 ? (
+        <div className="attempt-note">
+          <span className="live-dot" />
+          <span>
+            Attempt {call.attempt}, {CHANNEL_LABEL[call.channel].toLowerCase()}: {call.result?.summary ?? "No one picked up."}
+          </span>
+        </div>
+      ) : call ? (
         <div className="call-body">
           <div className="call-live">
             <div className="call-status">
@@ -296,31 +303,12 @@ export default function ReferencesTab({
   live: Record<string, LiveCallState>;
   highlightCall: string | null;
 }) {
-  const key = `vouch.channel.${app.id}`;
-  const [channel, setChannel] = useState<CallChannel>(() => {
-    try {
-      const saved = window.localStorage.getItem(key) as CallChannel | null;
-      if (saved) return saved;
-    } catch {
-      /* storage unavailable */
-    }
-    return config?.calls.default_channel ?? "simulated";
-  });
+  // The server owns the choice; keep a local copy so the picker responds instantly.
+  const [channel, setChannel] = useState<CallChannel>(app.call_channel);
   useEffect(() => {
-    try {
-      if (!window.localStorage.getItem(key) && config) setChannel(config.calls.default_channel);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [config, key]);
-  const change = (c: CallChannel) => {
-    setChannel(c);
-    try {
-      window.localStorage.setItem(key, c);
-    } catch {
-      /* storage unavailable */
-    }
-  };
+    setChannel(app.call_channel);
+  }, [app.call_channel]);
+  const change = (c: CallChannel) => setChannel(c);
   const called = app.references.filter((r) => !r.flagged && r.checks);
   return (
     <div>

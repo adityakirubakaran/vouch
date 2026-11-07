@@ -85,8 +85,8 @@ def evaluate(
             bits.append(f"with {money(f.past_due_amount)} past due")
         facts.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", " ".join(bits) + "."))
     for r in flagged:
-        why = "; ".join(s["message"] for s in r.signals if s["severity"] in ("critical", "warn")) or "failed verification"
-        risks.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", f"{r.company} was excluded: {why}"))
+        why = " ".join(s["message"] for s in r.signals if s["severity"] in ("critical", "warn")) or "It failed verification."
+        risks.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", f"{r.company} was excluded and not called. {why}"))
     for r in unreachable:
         risks.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", f"{r.company} did not give a phone reference ({r.outcome or 'not reached'})."))
 
@@ -113,7 +113,7 @@ def evaluate(
         avg_high = sum(r.findings.high_credit for r in completed) / len(completed)  # type: ignore[union-attr,misc]
         base = avg_high * lim["fraction_of_avg_high_credit"]
         math_lines.append(f"Average high credit from {len(completed)} verified references: {money(avg_high)}")
-        math_lines.append(f"× {lim['fraction_of_avg_high_credit']:.0%} policy factor = {money(base)}")
+        math_lines.append(f"Policy factor of {lim['fraction_of_avg_high_credit']:.0%}: {money(base)}")
 
         offered_days = terms_days(terms) or 30
         days = [r.findings.avg_days_to_pay for r in completed if r.findings and r.findings.avg_days_to_pay is not None]
@@ -122,12 +122,12 @@ def evaluate(
             if avg_days > offered_days + lim["slow_pay_grace_days"]:
                 base *= lim["slow_pay_fraction"]
                 math_lines.append(
-                    f"Pays in {avg_days:.0f} days on average, more than {lim['slow_pay_grace_days']} days past {terms}: "
-                    f"× {lim['slow_pay_fraction']:.0%} = {money(base)}"
+                    f"Pays in {avg_days:.0f} days on average, more than {lim['slow_pay_grace_days']} days past {terms}, "
+                    f"so the limit is cut to {lim['slow_pay_fraction']:.0%}: {money(base)}"
                 )
                 risks.append(Fact("policy", f"References are paid in {avg_days:.0f} days on average, slower than {terms}."))
             else:
-                math_lines.append(f"Pays in {avg_days:.0f} days on average, within {terms} plus grace: no reduction")
+                math_lines.append(f"Pays in {avg_days:.0f} days on average, within {terms} plus {lim['slow_pay_grace_days']} days of grace, so no reduction")
 
         past_due = sum((r.findings.past_due_amount or 0) for r in completed if r.findings)
         step = lim["round_down_to"]
@@ -135,7 +135,7 @@ def evaluate(
         math_lines.append(f"Rounded down to the nearest {money(step)}: {money(limit)}")
         if lim.get("cap_at_requested") and requested and limit > requested:
             limit = requested
-            math_lines.append(f"Capped at the requested {money(requested)}")
+            math_lines.append(f"Capped at the {money(requested)} requested")
 
         if limit <= 0:
             decision, reason = "request_info", "Verified references do not support any limit under policy."
@@ -229,7 +229,10 @@ def template_narrative(applicant: str, result: dict) -> MemoNarrative:
     }
     points = [MemoPoint(text=f["text"], evidence_ids=[f["id"]] if f["id"] != "policy" else []) for f in result["facts"][1:5]]
     risks = [MemoPoint(text=f["text"], evidence_ids=[f["id"]] if f["id"] != "policy" else []) for f in result["risks"]]
-    return MemoNarrative(headline=f"{headlines[result['decision']]} {result['reason']}", points=points, risks=risks)
+    headline = headlines[result["decision"]]
+    if result["decision"] in ("request_info", "manual_review", "decline"):
+        headline = f"{headline} {result['reason']}"
+    return MemoNarrative(headline=headline, points=points, risks=risks)
 
 
 @fake_handler(NARRATIVE_TOOL)

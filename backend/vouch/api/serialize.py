@@ -115,7 +115,7 @@ def summary_out(a: Application) -> dict:
     }
 
 
-def detail_out(a: Application, steps: list[Step], evidence: list[Evidence], emails: list[Email], llm_mode: str) -> dict:
+def detail_out(a: Application, steps: list[Step], evidence: list[Evidence], emails: list[Email], llm_mode: str, default_channel: str) -> dict:
     by_ref = {s.reference_id: s for s in steps if s.reference_id}
     bank_step = next((s for s in steps if s.kind == "bank"), None)
     refs = [reference_out(r, by_ref.get(r.id)) for r in a.references if r.kind == "trade"]
@@ -135,4 +135,5 @@ def detail_out(a: Application, steps: list[Step], evidence: list[Evidence], emai
         "emails": [email_out(e) for e in emails],
         "document_url": f"/api/applications/{a.id}/document",
         "llm_mode": llm_mode,
+        "call_channel": a.call_channel or default_channel,
     }

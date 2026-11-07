@@ -7,10 +7,10 @@ import { REF_STATUS_LABEL, clock } from "../lib/format";
 function EmailCard({ email }: { email: EmailOut }) {
   const sent = email.direction === "outbound";
   const via: Record<EmailOut["delivery"], string> = {
-    outbox: "Held in the outbox (email sending is off)",
-    smtp: "Sent by email",
+    outbox: "Outbox, not sent",
+    smtp: "Sent",
     simulated: "Simulated reply",
-    webhook: "Received by email",
+    webhook: "Received",
   };
   return (
     <article id={`email-${email.id}`} className="email card white">

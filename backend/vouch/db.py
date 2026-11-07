@@ -67,6 +67,7 @@ class Application(Base):
     source_filename: Mapped[str] = mapped_column(String)
     source_path: Mapped[str] = mapped_column(String)
     sample_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    call_channel: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # per-application override
     applicant_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     requested_limit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     requested_terms: Mapped[Optional[str]] = mapped_column(String, nullable=True)
