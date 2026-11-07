@@ -91,6 +91,15 @@ class LLM:
 
 
 class AnthropicLLM(LLM):
+    """Claude via the Anthropic API.
+
+    Model notes (Claude 5.5 generation): Haiku accepts a forced tool_choice, which
+    also skips thinking, so live jobs force the tool for speed. Sonnet and Opus 5.5
+    reject forced tool_choice with a 400, so for them we offer the tool with
+    tool_choice "auto", tell the model to call it, and nudge once if it does not.
+    We learn which models reject forcing at runtime instead of hard-coding a list.
+    """
+
     mode = "anthropic"
 
     def __init__(self, settings: Settings) -> None:
@@ -99,6 +108,24 @@ class AnthropicLLM(LLM):
 
         self._anthropic = anthropic
         self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
+        self._no_forced_tool: set[str] = set()
+        self._no_disabled_thinking: set[str] = set()
+
+    @staticmethod
+    def _blocks(content: Any) -> list[dict]:
+        return [b.model_dump(exclude_none=True) for b in content]
+
+    async def _create(self, model: str, force: bool, **kwargs: Any) -> Any:
+        tool_name = kwargs["tools"][0]["name"]
+        if force and model not in self._no_forced_tool:
+            try:
+                return await self.client.messages.create(model=model, tool_choice={"type": "tool", "name": tool_name}, **kwargs)
+            except self._anthropic.BadRequestError as exc:
+                if "tool_choice" not in str(exc):
+                    raise
+                log.info("%s does not accept a forced tool_choice; using auto", model)
+                self._no_forced_tool.add(model)
+        return await self.client.messages.create(model=model, tool_choice={"type": "auto"}, **kwargs)
 
     async def structured(
         self,
@@ -111,21 +138,27 @@ class AnthropicLLM(LLM):
         tool_description: str,
         max_tokens: int = 4000,
     ) -> T:
+        model = self.model_for(role)
         tool = {"name": tool_name, "description": tool_description, "input_schema": inline_schema(output)}
+        system = f"{system}\n\nAlways answer by calling the {tool_name} tool exactly once."
         messages: list[dict] = [{"role": "user", "content": content}]
         last_error: Optional[str] = None
-        for attempt in range(2):
-            resp = await self.client.messages.create(
-                model=self.model_for(role),
-                max_tokens=max_tokens,
+        for attempt in range(3):
+            resp = await self._create(
+                model,
+                force=role == "fast",
+                max_tokens=max_tokens + (8000 if role != "fast" else 0),  # room for adaptive thinking
                 system=system,
                 messages=messages,
                 tools=[tool],
-                tool_choice={"type": "tool", "name": tool_name},
             )
-            block = next((b for b in resp.content if b.type == "tool_use"), None)
+            block = next((b for b in resp.content if b.type == "tool_use" and b.name == tool_name), None)
             if block is None:
-                last_error = "model did not call the tool"
+                last_error = f"model did not call {tool_name} (stop_reason={resp.stop_reason})"
+                messages = messages + [
+                    {"role": "assistant", "content": self._blocks(resp.content) or [{"type": "text", "text": "..."}]},
+                    {"role": "user", "content": f"Call the {tool_name} tool now with your answer."},
+                ]
                 continue
             try:
                 return output.model_validate(block.input)
@@ -133,7 +166,7 @@ class AnthropicLLM(LLM):
                 last_error = str(exc)
                 log.warning("structured output failed validation (attempt %s): %s", attempt + 1, exc)
                 messages = messages + [
-                    {"role": "assistant", "content": [b.model_dump() for b in resp.content]},
+                    {"role": "assistant", "content": self._blocks(resp.content)},
                     {
                         "role": "user",
                         "content": [
@@ -149,17 +182,28 @@ class AnthropicLLM(LLM):
         raise LLMError(f"{tool_name}: {last_error}")
 
     async def voice_turn(self, *, system: str, messages: list[dict], tools: list[dict]) -> AsyncIterator[VoiceEvent]:
-        async with self.client.messages.stream(
-            model=self.model_for("fast"),
-            max_tokens=400,
-            system=system,
-            messages=messages,
-            tools=tools,
-        ) as stream:
+        model = self.model_for("fast")
+        kwargs: dict[str, Any] = dict(model=model, max_tokens=400, system=system, messages=messages, tools=tools)
+        if model not in self._no_disabled_thinking:
+            # A phone call cannot wait for the model to think; Haiku 5.5 allows turning it off.
+            kwargs["thinking"] = {"type": "disabled"}
+        try:
+            async for ev in self._stream_turn(kwargs):
+                yield ev
+        except self._anthropic.BadRequestError as exc:
+            if "thinking" not in str(exc) or "thinking" not in kwargs:
+                raise
+            self._no_disabled_thinking.add(model)
+            kwargs.pop("thinking")
+            async for ev in self._stream_turn(kwargs):
+                yield ev
+
+    async def _stream_turn(self, kwargs: dict[str, Any]) -> AsyncIterator[VoiceEvent]:
+        async with self.client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 yield VoiceEvent(kind="text", text=text)
             final = await stream.get_final_message()
-        blocks = [b.model_dump() for b in final.content]
+        blocks = self._blocks(final.content)
         for b in final.content:
             if b.type == "tool_use":
                 yield VoiceEvent(kind="tool", tool_name=b.name, tool_input=dict(b.input), tool_use_id=b.id, assistant_content=blocks)
