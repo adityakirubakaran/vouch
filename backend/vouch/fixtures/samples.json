@@ -1,0 +1,131 @@
+{
+  "seller": "Northline Supply",
+  "samples": [
+    {
+      "id": "acme",
+      "file": "samples/acme-bakery-supply-credit-application.pdf",
+      "title": "Acme Bakery Supply",
+      "description": "Scanned application, $30,000 on Net 30. One of the three trade references is fake.",
+      "application": {
+        "applicant": {
+          "legal_name": "Acme Bakery Supply LLC",
+          "dba": "Acme Bakery Supply",
+          "entity_type": "LLC",
+          "state_of_incorporation": "CA",
+          "ein": "47-2918364",
+          "years_in_business": 11,
+          "annual_revenue": 4200000,
+          "principal_name": "Maria Delgado",
+          "principal_title": "Owner",
+          "phone": "(510) 555-0142",
+          "email": "ap@acmebakerysupply.example",
+          "website": "acmebakerysupply.example",
+          "address": {"street": "1450 Industrial Way", "city": "Oakland", "state": "CA", "postal_code": "94607"}
+        },
+        "requested_limit": 30000,
+        "requested_terms": "Net 30",
+        "bank": {
+          "bank_name": "First Bay Community Bank",
+          "contact_name": "Daniel Cho",
+          "phone": "(510) 555-0188",
+          "email": "references@firstbaycb.example",
+          "account_last4": "4471"
+        },
+        "trade_references": [
+          {
+            "company": "Harbor Paper Co.",
+            "contact_name": "Linda Park",
+            "phone": "(415) 555-0117",
+            "email": "ar@harborpaper.example",
+            "address": {"street": "88 Pier Road", "city": "San Francisco", "state": "CA", "postal_code": "94111"}
+          },
+          {
+            "company": "Coastal Flour Mills Inc.",
+            "contact_name": "Raj Patel",
+            "phone": "(209) 555-0163",
+            "email": "credit@coastalflour.example",
+            "address": {"street": "2200 Mill Street", "city": "Stockton", "state": "CA", "postal_code": "95203"}
+          },
+          {
+            "company": "Bayview Packaging LLC",
+            "contact_name": "Tom Reyes",
+            "phone": "(510) 555-0142",
+            "email": "bayviewpackaging.orders@gmail.com",
+            "address": {"street": "1450 Industrial Way, Unit B", "city": "Oakland", "state": "CA", "postal_code": "94607"}
+          }
+        ],
+        "signature": {
+          "signed": true,
+          "signer_name": "Maria Delgado",
+          "signer_title": "Owner",
+          "date": "2026-11-02",
+          "authorizes_reference_checks": true
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "ridgeline",
+      "file": "samples/ridgeline-cafe-group-credit-application.pdf",
+      "title": "Ridgeline Cafe Group",
+      "description": "Scanned application, $15,000 on Net 30. Clean file, but one reference asks for a callback and one only gives written references.",
+      "application": {
+        "applicant": {
+          "legal_name": "Ridgeline Cafe Group Inc.",
+          "dba": null,
+          "entity_type": "Corporation",
+          "state_of_incorporation": "CA",
+          "ein": "83-1057729",
+          "years_in_business": 7,
+          "annual_revenue": 2600000,
+          "principal_name": "James Okafor",
+          "principal_title": "CFO",
+          "phone": "(916) 555-0129",
+          "email": "accounts@ridgelinecafe.example",
+          "website": "ridgelinecafe.example",
+          "address": {"street": "310 J Street, Suite 400", "city": "Sacramento", "state": "CA", "postal_code": "95814"}
+        },
+        "requested_limit": 15000,
+        "requested_terms": "Net 30",
+        "bank": {
+          "bank_name": "Redwood Federal Credit Union",
+          "contact_name": "Priya Nair",
+          "phone": "(916) 555-0174",
+          "email": "bizreferences@redwoodfcu.example",
+          "account_last4": "0932"
+        },
+        "trade_references": [
+          {
+            "company": "Sierra Dairy Distributors",
+            "contact_name": "Ellen Brooks",
+            "phone": "(530) 555-0108",
+            "email": "ar@sierradairy.example",
+            "address": {"street": "41 Creamery Lane", "city": "Auburn", "state": "CA", "postal_code": "95603"}
+          },
+          {
+            "company": "Golden Gate Restaurant Supply",
+            "contact_name": "Marcus Lee",
+            "phone": "(415) 555-0151",
+            "email": "credit@ggrestaurantsupply.example",
+            "address": {"street": "900 Bayshore Blvd", "city": "San Francisco", "state": "CA", "postal_code": "94124"}
+          },
+          {
+            "company": "Pacific Coffee Roasters",
+            "contact_name": "Dana Whitfield",
+            "phone": "(831) 555-0196",
+            "email": "credit@pacificroasters.example",
+            "address": {"street": "15 Harbor Street", "city": "Santa Cruz", "state": "CA", "postal_code": "95060"}
+          }
+        ],
+        "signature": {
+          "signed": true,
+          "signer_name": "James Okafor",
+          "signer_title": "CFO",
+          "date": "2026-11-04",
+          "authorizes_reference_checks": true
+        },
+        "issues": []
+      }
+    }
+  ]
+}

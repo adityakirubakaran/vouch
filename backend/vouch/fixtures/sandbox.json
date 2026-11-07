@@ -1,0 +1,99 @@
+{
+  "_note": "Sandbox registry, domain, and website data for the fictional demo companies. Dates given as {\"days_ago\": N} are relative to today so the demo stays current.",
+  "companies": [
+    {
+      "name": "Acme Bakery Supply LLC",
+      "company_number": "201407310042",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "2014-03-11",
+      "registered_address": "1450 Industrial Way, Oakland, CA 94607",
+      "officers": ["Maria Delgado"]
+    },
+    {
+      "name": "Harbor Paper Co.",
+      "company_number": "C3341187",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "2011-06-20",
+      "registered_address": "88 Pier Road, San Francisco, CA 94111",
+      "officers": ["Gregory Lam", "Linda Park"]
+    },
+    {
+      "name": "Coastal Flour Mills Inc.",
+      "company_number": "C3901254",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "2016-02-08",
+      "registered_address": "2200 Mill Street, Stockton, CA 95203",
+      "officers": ["Raj Patel", "Ana Moreno"]
+    },
+    {
+      "name": "Bayview Packaging LLC",
+      "company_number": "202660118803",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": {"days_ago": 23},
+      "registered_address": "1450 Industrial Way, Unit B, Oakland, CA 94607",
+      "officers": ["Maria Delgado"]
+    },
+    {
+      "name": "Ridgeline Cafe Group Inc.",
+      "company_number": "C4120876",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "2019-04-15",
+      "registered_address": "310 J Street, Suite 400, Sacramento, CA 95814",
+      "officers": ["Hannah Ruiz", "James Okafor"]
+    },
+    {
+      "name": "Sierra Dairy Distributors",
+      "company_number": "C2876543",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "2006-09-01",
+      "registered_address": "41 Creamery Lane, Auburn, CA 95603",
+      "officers": ["Ellen Brooks"]
+    },
+    {
+      "name": "Golden Gate Restaurant Supply",
+      "company_number": "C2210987",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "1998-11-12",
+      "registered_address": "900 Bayshore Blvd, San Francisco, CA 94124",
+      "officers": ["Marcus Lee", "Susan Lee"]
+    },
+    {
+      "name": "Pacific Coffee Roasters",
+      "company_number": "C3567801",
+      "jurisdiction": "us_ca",
+      "status": "Active",
+      "incorporated": "2012-05-30",
+      "registered_address": "15 Harbor Street, Santa Cruz, CA 95060",
+      "officers": ["Dana Whitfield"]
+    }
+  ],
+  "domains": {
+    "acmebakerysupply.example": {"created": "2014-04-02"},
+    "harborpaper.example": {"created": "2011-08-14"},
+    "coastalflour.example": {"created": "2016-03-21"},
+    "bayviewpackaging.example": {"created": {"days_ago": 14}},
+    "ridgelinecafe.example": {"created": "2019-05-02"},
+    "sierradairy.example": {"created": "2007-01-19"},
+    "ggrestaurantsupply.example": {"created": "2001-03-07"},
+    "pacificroasters.example": {"created": "2012-07-11"},
+    "firstbaycb.example": {"created": "2003-10-01"},
+    "redwoodfcu.example": {"created": "1999-02-11"}
+  },
+  "websites": {
+    "Harbor Paper Co.": {"url": "https://harborpaper.example", "phones": ["(415) 555-0117", "(415) 555-0110"]},
+    "Coastal Flour Mills Inc.": {"url": "https://coastalflour.example", "phones": ["(209) 555-0163"]},
+    "Bayview Packaging LLC": {"url": "https://bayviewpackaging.example", "phones": []},
+    "Acme Bakery Supply LLC": {"url": "https://acmebakerysupply.example", "phones": ["(510) 555-0142"]},
+    "Sierra Dairy Distributors": {"url": "https://sierradairy.example", "phones": ["(530) 555-0108"]},
+    "Golden Gate Restaurant Supply": {"url": "https://ggrestaurantsupply.example", "phones": ["(415) 555-0151", "(415) 555-0150"]},
+    "Pacific Coffee Roasters": {"url": "https://pacificroasters.example", "phones": ["(831) 555-0196"]},
+    "Ridgeline Cafe Group Inc.": {"url": "https://ridgelinecafe.example", "phones": ["(916) 555-0129"]}
+  }
+}

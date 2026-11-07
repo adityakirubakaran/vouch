@@ -1,0 +1,34 @@
+# Northline Supply credit policy, as Vouch applies it.
+# Numbers here drive every decision; Claude only writes the explanation.
+
+seller: Northline Supply
+terms_offered: Net 30
+
+verification:
+  # A trade reference younger than this is treated as possibly set up for the application.
+  reference_min_age_days: 180
+  # Same idea for the reference's website domain.
+  domain_min_age_days: 180
+  # Two soft warnings on one reference also flag it.
+  flag_on_warnings: 2
+
+applicant:
+  min_years_in_business: 2
+  require_signed_authorization: true
+
+limits:
+  # Need at least this many references that actually answered our questions.
+  min_completed_references: 2
+  # Start from the average high credit those references extend...
+  fraction_of_avg_high_credit: 0.85
+  # ...cut it if the applicant pays them late...
+  slow_pay_grace_days: 5
+  slow_pay_fraction: 0.5
+  # ...round down, and never go above what they asked for.
+  round_down_to: 5000
+  cap_at_requested: true
+  # Anything above this goes to a senior credit manager no matter what.
+  senior_review_above: 100000
+
+bank:
+  max_nsf_last_12mo: 2

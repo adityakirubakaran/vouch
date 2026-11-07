@@ -1,0 +1,178 @@
+{
+  "_note": "How each fictional reference behaves when Vouch calls in simulated mode. Claude plays the person using the persona and facts; in offline mode the scripted lines are used instead.",
+  "references": {
+    "harbor paper": {
+      "person": "Linda Park, accounts receivable clerk at Harbor Paper Co.",
+      "attempts": [
+        {
+          "behavior": "no_answer"
+        },
+        {
+          "behavior": "answer",
+          "style": "Friendly but busy. The first time you are asked for numbers, say you need a second to pull up the account, then give them.",
+          "facts": {
+            "customer_since": "2022",
+            "terms": "Net 30",
+            "high_credit": 40000,
+            "current_balance": 12400,
+            "past_due_amount": 0,
+            "avg_days_to_pay": 28,
+            "pays_within_terms": true,
+            "would_extend_more_credit": true,
+            "comments": "Good customer, orders every week."
+          },
+          "script": [
+            "This is Linda in accounts receivable. Sure, go ahead.",
+            "Let me pull up the account, one second. Okay, they've bought from us on credit since 2022, on Net 30.",
+            "High credit is about forty thousand. Right now they owe around twelve thousand four hundred.",
+            "Nothing is past due. They pay in about 28 days on average.",
+            "Yes, we'd happily extend more. Good customer, they order every week.",
+            "That's right.",
+            "You're welcome, bye."
+          ]
+        }
+      ]
+    },
+    "coastal flour mills": {
+      "person": "Raj Patel, credit manager at Coastal Flour Mills",
+      "attempts": [
+        {
+          "behavior": "answer",
+          "style": "Efficient and precise. Answers each question directly.",
+          "facts": {
+            "customer_since": "2019",
+            "terms": "Net 30",
+            "high_credit": 20000,
+            "current_balance": 6800,
+            "past_due_amount": 0,
+            "avg_days_to_pay": 31,
+            "pays_within_terms": true,
+            "would_extend_more_credit": true,
+            "comments": "Occasionally a few days late around holidays, always pays."
+          },
+          "script": [
+            "Raj speaking. Yes, I can do that.",
+            "They've been a customer since 2019, on Net 30 terms.",
+            "High credit twenty thousand. Current balance is six thousand eight hundred.",
+            "Nothing past due. Average is about 31 days, sometimes a few days late around the holidays.",
+            "Yes, I'd extend more. They always pay.",
+            "Correct.",
+            "Thanks, take care."
+          ]
+        }
+      ]
+    },
+    "bayview packaging": {
+      "person": "Someone answering for Bayview Packaging",
+      "attempts": [
+        {
+          "behavior": "answer",
+          "style": "Overly enthusiastic and vague about specifics.",
+          "facts": {
+            "customer_since": "a long time",
+            "terms": "Net 60",
+            "high_credit": 100000,
+            "past_due_amount": 0,
+            "avg_days_to_pay": 15,
+            "pays_within_terms": true,
+            "would_extend_more_credit": true
+          },
+          "script": [
+            "Bayview Packaging! Oh yes, go ahead.",
+            "They've been with us forever, Net 60.",
+            "High credit, I'd say a hundred thousand.",
+            "Never late. They pay in about two weeks.",
+            "Absolutely, best customer we have.",
+            "Yep.",
+            "Bye now."
+          ]
+        }
+      ]
+    },
+    "sierra dairy distributors": {
+      "person": "Ellen Brooks, owner of Sierra Dairy Distributors",
+      "attempts": [
+        {
+          "behavior": "answer",
+          "style": "Warm and chatty.",
+          "facts": {
+            "customer_since": "2020",
+            "terms": "Net 15",
+            "high_credit": 18000,
+            "current_balance": 4200,
+            "past_due_amount": 0,
+            "avg_days_to_pay": 14,
+            "pays_within_terms": true,
+            "would_extend_more_credit": true
+          },
+          "script": [
+            "This is Ellen. Of course.",
+            "Ridgeline's been with us since 2020, Net 15.",
+            "High credit about eighteen thousand. They owe forty-two hundred right now.",
+            "Nothing past due. They pay in about 14 days, right on time.",
+            "Yes, lovely people.",
+            "That's right.",
+            "Bye."
+          ]
+        }
+      ]
+    },
+    "golden gate restaurant supply": {
+      "person": "Marcus Lee, credit manager at Golden Gate Restaurant Supply",
+      "attempts": [
+        {
+          "behavior": "answer",
+          "style": "In a meeting. Politely asks you to call back Thursday morning and ends the call.",
+          "facts": {},
+          "callback": "Thursday morning",
+          "script": [
+            "This is Marcus. I'm about to walk into a meeting. Can you call me back Thursday morning?",
+            "Thanks."
+          ]
+        },
+        {
+          "behavior": "answer",
+          "style": "Helpful and direct.",
+          "facts": {
+            "customer_since": "2021",
+            "terms": "Net 30",
+            "high_credit": 25000,
+            "current_balance": 9100,
+            "past_due_amount": 0,
+            "avg_days_to_pay": 30,
+            "pays_within_terms": true,
+            "would_extend_more_credit": true
+          },
+          "script": [
+            "Marcus here. Yes, thanks for calling back.",
+            "Customer since 2021, Net 30.",
+            "High credit twenty-five thousand. Current balance about nine thousand one hundred.",
+            "Nothing past due. Right at 30 days on average.",
+            "Yes, solid account.",
+            "Correct.",
+            "Take care."
+          ]
+        }
+      ]
+    },
+    "pacific coffee roasters": {
+      "person": "Dana Whitfield, controller at Pacific Coffee Roasters",
+      "attempts": [
+        {
+          "behavior": "answer",
+          "style": "Polite but firm: company policy is written references only. Gives the email address credit@pacificroasters.example.",
+          "facts": {},
+          "alternate_contact": "credit@pacificroasters.example",
+          "script": [
+            "Dana speaking. I'm sorry, we only give written references. Please email credit@pacificroasters.example.",
+            "Thanks, bye."
+          ]
+        }
+      ]
+    }
+  },
+  "banks": {
+    "first bay community bank": "Hello,\n\nIn response to your reference request for Acme Bakery Supply LLC (account ending 4471): the account has been open with First Bay since March 2014. Average collected balances run in the mid five figures. There have been no NSF or overdraft items in the past 12 months. The customer has a $150,000 revolving line with us that is in good standing. We consider the relationship satisfactory.\n\nDaniel Cho\nBusiness Banking, First Bay Community Bank",
+    "redwood federal credit union": "Hi,\n\nRidgeline Cafe Group Inc. (account ending 0932) has banked with Redwood FCU since 2019. Average balances are in the low five figures. No overdrafts or returned items in the last 12 months. No loans with us at this time. Relationship is satisfactory.\n\nPriya Nair\nRedwood Federal Credit Union"
+  }
+}
