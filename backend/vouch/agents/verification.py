@@ -78,11 +78,12 @@ async def check_party(
     site_domain = domain_of(party.website) or domain_of(party.email)
     if site_domain in FREE_EMAIL_DOMAINS:
         site_domain = domain_of(party.website)
-    reg, dom, web = await asyncio.gather(
+    reg, web = await asyncio.gather(
         registry.lookup(party.company, party.state),
-        domains.lookup(site_domain),
         websites.phones_for(party.company, party.website or (f"https://{site_domain}" if site_domain else None)),
     )
+    # A reference that only gave a free email may still have a website we found by name.
+    dom = await domains.lookup(site_domain or domain_of(web.url))
     return {"registry": reg.to_dict(), "domain": dom.to_dict() if dom else None, "website": web.to_dict()}
 
 

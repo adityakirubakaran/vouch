@@ -41,7 +41,8 @@ def inline_schema(model: Type[BaseModel]) -> dict:
                 extra = {k: v for k, v in node.items() if k != "$ref"}
                 merged.update(extra)
                 return resolve(merged)
-            return {k: resolve(v) for k, v in node.items() if k != "title"}
+            # drop schema "title" annotations, but keep a property that happens to be named title
+            return {k: resolve(v) for k, v in node.items() if not (k == "title" and isinstance(v, str))}
         if isinstance(node, list):
             return [resolve(v) for v in node]
         return node

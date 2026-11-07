@@ -1,0 +1,150 @@
+"""HTTP and WebSocket surface: REST endpoints, the browser phone protocol, and
+Twilio webhooks (signatures, TwiML, ConversationRelay)."""
+
+from __future__ import annotations
+
+import json
+import time
+import xml.etree.ElementTree as ET
+
+import pytest
+from fastapi.testclient import TestClient
+
+from vouch.api.app import create_app
+from vouch.fixtures_data import persona_for
+from vouch.providers.twilio_client import expected_signature, relay_twiml
+
+from .conftest import make_settings
+
+
+@pytest.fixture
+def client_factory(tmp_path):
+    clients = []
+
+    def make(**overrides):
+        settings = make_settings(tmp_path, start_engine=True, **overrides)
+        client = TestClient(create_app(settings))
+        client.__enter__()
+        clients.append(client)
+        return client
+
+    yield make
+    for c in clients:
+        c.__exit__(None, None, None)
+
+
+def wait_until(fn, timeout=20.0, interval=0.05):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        value = fn()
+        if value:
+            return value
+        time.sleep(interval)
+    raise AssertionError("condition not met in time")
+
+
+def test_samples_config_and_full_run(client_factory):
+    c = client_factory()
+    assert c.get("/api/health").json() == {"ok": True}
+    cfg = c.get("/api/config").json()
+    assert cfg["llm"]["mode"] == "fake" and cfg["calls"]["default_channel"] == "simulated"
+    samples = c.get("/api/samples").json()
+    assert {s["id"] for s in samples} == {"acme", "ridgeline"} and all(s["available"] for s in samples)
+
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "ready_for_review" and d)
+    assert detail["decision_detail"]["recommended_limit"] == 25000
+    assert len(detail["references"]) == 3 and detail["bank"]["status"] == "completed"
+    assert {e["code"] for e in detail["evidence"]} >= {"app", "reg-applicant", "call-ref-1", "call-ref-2", "fraud-ref-3", "bank"}
+    assert c.get(detail["document_url"]).headers["content-type"] == "application/pdf"
+    assert any(e["type"] == "memo.ready" for e in c.get(f"/api/applications/{app_id}/events").json())
+
+    approved = c.post(f"/api/applications/{app_id}/approve", json={"limit": 20000, "terms": "Net 30"}).json()
+    assert approved["review"]["limit"] == 20000
+    synced = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "synced" and d)
+    assert synced["sync"]["customer_id"].startswith("CUST-")
+
+
+def test_upload_validation(client_factory):
+    c = client_factory()
+    r = c.post("/api/applications", files={"file": ("notes.txt", b"hello", "text/plain")})
+    assert r.status_code == 400
+    r = c.post("/api/applications", files={"file": ("empty.pdf", b"", "application/pdf")})
+    assert r.status_code == 400
+    # Offline mode can only read bundled samples; an unknown PDF fails clearly instead of hanging.
+    app_id = c.post("/api/applications", files={"file": ("other.pdf", b"%PDF-1.4 fake", "application/pdf")}).json()["id"]
+    detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "failed" and d)
+    assert "ANTHROPIC_API_KEY" in detail["error"]
+
+
+def test_browser_phone_call_over_websocket(client_factory):
+    """A person answers in the /phone page; the agent runs the whole interview."""
+    c = client_factory(call_channel="browser", call_ring_timeout_seconds=30)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    answered = set()
+    for _ in range(2):  # Harbor and Coastal ring; Bayview is flagged and never called
+        ringing = wait_until(lambda: [r for r in c.get("/api/calls/ringing").json() if r["id"] not in answered])
+        call = ringing[0]
+        answered.add(call["id"])
+        script = persona_for(call["reference_company"])["attempts"][-1]["script"]
+        with c.websocket_connect(f"/ws/phone/{call['id']}") as ws:
+            ws.send_text(json.dumps({"type": "setup"}))
+            lines = iter(script)
+            heard = ""
+            while True:
+                msg = json.loads(ws.receive_text())
+                if msg["type"] == "end":
+                    break
+                assert msg["type"] == "text"
+                heard += msg["token"]
+                if msg["last"]:
+                    assert heard.strip()
+                    heard = ""
+                    ws.send_text(json.dumps({"type": "prompt", "voicePrompt": next(lines), "last": True}))
+    detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "ready_for_review" and d, timeout=30)
+    harbor = next(r for r in detail["references"] if r["company"] == "Harbor Paper Co.")
+    assert harbor["findings"]["high_credit"] == 40000
+    assert harbor["calls"][0]["channel"] == "browser"
+    assert harbor["calls"][0]["transcript"][0]["text"].startswith("Hi, this is Vouch, an AI assistant")
+
+
+def test_relay_twiml_is_valid_xml():
+    xml = relay_twiml("wss://example.ngrok.app/twilio/relay", "call_123", 'Hi "there" & welcome', "https://x/a?call_id=call_123", "ElevenLabs", None)
+    root = ET.fromstring(xml)
+    relay = root.find("./Connect/ConversationRelay")
+    assert relay is not None and relay.get("url") == "wss://example.ngrok.app/twilio/relay"
+    assert relay.get("welcomeGreeting") == 'Hi "there" & welcome'
+    assert relay.find("./Parameter").get("value") == "call_123"
+
+
+def test_twilio_webhooks_require_valid_signature(client_factory):
+    c = client_factory(twilio_auth_token="secret", public_base_url="https://vouch.test")
+    params = {"CallStatus": "ringing", "CallSid": "CA1"}
+    assert c.post("/twilio/status?call_id=call_x", data=params).status_code == 403
+    sig = expected_signature("secret", "https://vouch.test/twilio/status?call_id=call_x", params)
+    assert c.post("/twilio/status?call_id=call_x", data=params, headers={"X-Twilio-Signature": sig}).status_code == 204
+
+
+def test_twilio_conversation_relay_session(client_factory):
+    """Drive the Twilio relay endpoint exactly as ConversationRelay would."""
+    c = client_factory(call_channel="browser", call_ring_timeout_seconds=30)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    call = wait_until(lambda: c.get("/api/calls/ringing").json())[0]
+    script = persona_for(call["reference_company"])["attempts"][-1]["script"]
+    with c.websocket_connect("/twilio/relay") as ws:
+        ws.send_text(json.dumps({"type": "setup", "callSid": "CA123", "customParameters": {"call_id": call["id"]}}))
+        lines = iter(script)
+        # Twilio already spoke the welcome greeting, so we answer first.
+        ws.send_text(json.dumps({"type": "prompt", "voicePrompt": next(lines), "last": True}))
+        tokens = ""
+        while True:
+            msg = json.loads(ws.receive_text())
+            if msg["type"] == "end":
+                assert json.loads(msg["handoffData"])["reason"] == "completed"
+                break
+            tokens += msg["token"]
+            if msg["last"]:
+                ws.send_text(json.dumps({"type": "prompt", "voicePrompt": next(lines), "last": True}))
+    got = wait_until(lambda: (r := c.get(f"/api/calls/{call['id']}").json())["status"] == "ended" and r)
+    assert got["outcome"] == "completed"
+    assert got["result"]["findings"]["avg_days_to_pay"] in (28, 31)
