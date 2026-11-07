@@ -1,10 +1,10 @@
 .PHONY: setup dev start build test smoke samples tunnel reset
 
 setup:            ## install backend and frontend dependencies, create .env
-	./scripts/setup.sh
+	bash scripts/setup.sh
 
 dev:              ## run backend (:8000) and frontend dev server (:5173)
-	./scripts/dev.sh
+	bash scripts/dev.sh
 
 build:            ## build the frontend into frontend/dist
 	cd frontend && npm run build
@@ -23,7 +23,7 @@ samples:          ## regenerate the scanned sample applications
 	cd backend && .venv/bin/python ../samples/generate_samples.py
 
 tunnel:           ## public https URL for Twilio webhooks
-	./scripts/tunnel.sh
+	bash scripts/tunnel.sh
 
 reset:            ## delete local data (applications, calls, ledger)
 	rm -rf data/vouch.db data/vouch.db-* data/uploads data/ledger.json
