@@ -461,6 +461,16 @@ class Workflow:
                 app.status = "failed"
                 app.error = step.error
             return
+        if step.kind == "call":
+            # A reference reached after the memo was written (e.g. "Call now" on a
+            # finished reference) re-opens the decision so it reflects the new answers.
+            memo = s.scalars(select(Step).where(Step.application_id == step.application_id, Step.kind == "memo")).first()
+            app = s.get(Application, step.application_id)
+            if memo is not None and memo.status == "done" and app is not None and app.status == "ready_for_review":
+                memo.status = "pending"
+                memo.next_run_at = None
+                app.status = "deciding"
+            return
         if step.kind == "extract":
             verify = self.s.engine.add_step(s, step.application_id, "verify", depends_on=[step.id], state={"requires": [step.id]})
             bank = self.s.engine.add_step(s, step.application_id, "bank", depends_on=[step.id], state={"requires": [step.id], "max_attempts": 2})

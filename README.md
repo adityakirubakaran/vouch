@@ -65,7 +65,7 @@ make setup        # backend virtualenv, frontend packages, .env
 make dev          # http://localhost:5173
 ```
 
-Click **New application**, then run the **Acme Bakery Supply** sample. Within about a minute Vouch reads the scan, flags Bayview Packaging (registered 23 days ago, on the applicant's own phone line and address, sharing the applicant's owner as an officer), calls Harbor Paper (no answer, then a retry that connects) and Coastal Flour Mills, gets the bank's reply, and recommends $25,000 on Net 30 against the $30,000 requested. Approve it and the customer is written to the ledger (or QuickBooks).
+Click **New application**, then run the **Acme Bakery Supply** sample. In a minute or two Vouch reads the scan, flags Bayview Packaging (registered 23 days ago, on the applicant's own phone line and address, sharing the applicant's owner as an officer), calls Harbor Paper (no answer, then a retry that connects) and Coastal Flour Mills, gets the bank's reply, and recommends $25,000 on Net 30 against the $30,000 requested. Approve it and the customer is written to the ledger (or QuickBooks).
 
 Without an API key, Vouch runs in offline mode: scripted responses that work only with the two bundled samples. This is also how the test suite runs.
 
@@ -81,6 +81,10 @@ Set `CALL_CHANNEL` in `.env`, or switch per application on the review screen.
   3. Put the tunnel's https URL in `PUBLIC_BASE_URL` and restart.
   4. For a live demo, set `DEMO_REFERENCE_PHONE` to a teammate's phone so every reference call rings it, while the memo still shows the number from the application.
 
+### Security note
+
+Vouch has no login. Run it on your own machine, or put it behind your own auth before exposing it. Twilio webhooks are verified with Twilio's request signature.
+
 ### QuickBooks sandbox
 
 Create an app at developer.intuit.com, add `http://localhost:8000/api/integrations/quickbooks/callback` (or your tunnel URL) as a redirect URI, set `ACCOUNTING_MODE=quickbooks` with the client ID and secret, then **Settings → Connect QuickBooks**.
@@ -91,7 +95,9 @@ Create an app at developer.intuit.com, add `http://localhost:8000/api/integratio
 make test
 ```
 
-The backend suite (35 tests, about 10 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, and TwiML generation.
+The backend suite (41 tests, about 15 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, and how the Claude client handles the 5.5 models' tool-choice rules.
+
+`make smoke` is the live check: with your API key it has Claude read both sample scans and compares every field with the answer key, then runs one application end to end.
 
 ## Project layout
 

@@ -60,7 +60,7 @@ def relay_twiml(ws_url: str, call_id: str, greeting: str, action_url: str, tts_p
         '<?xml version="1.0" encoding="UTF-8"?><Response>'
         f"<Connect action={quoteattr(action_url)}>"
         f"<ConversationRelay url={quoteattr(ws_url)} welcomeGreeting={quoteattr(greeting)} "
-        f'welcomeGreetingInterruptible="speech" interruptible="speech" ttsProvider={quoteattr(tts_provider)}{voice_attr}>'
+        f'welcomeGreetingInterruptible="none" interruptible="speech" ttsProvider={quoteattr(tts_provider)}{voice_attr}>'
         f'<Parameter name="call_id" value={quoteattr(call_id)}/>'
         "</ConversationRelay></Connect></Response>"
     )

@@ -126,3 +126,27 @@ async def test_request_info_when_references_cannot_be_verified(tmp_path):
             assert any("one more thing" in e.subject for e in outbound)
     finally:
         await stop_services(svc)
+
+
+async def test_calling_again_after_the_memo_reopens_the_decision(services):
+    app_id = submit_sample(services, "ridgeline")
+    await wait_for_status(services, app_id, ("ready_for_review",), timeout=30)
+    with services.db.session() as s:
+        app = s.get(Application, app_id)
+        first = app.decision["generated_at"]
+        pacific = next(r for r in app.references if r.company == "Pacific Coffee Roasters")
+        assert pacific.status == "declined"
+    assert services.workflow.call_now(pacific.id, "simulated")
+    await wait_for_status(services, app_id, ("deciding", "ready_for_review"), timeout=10)
+    import asyncio
+
+    for _ in range(200):
+        with services.db.session() as s:
+            app = s.get(Application, app_id)
+            if app.status == "ready_for_review" and app.decision["generated_at"] != first:
+                break
+        await asyncio.sleep(0.05)
+    with services.db.session() as s:
+        app = s.get(Application, app_id)
+        assert app.decision["generated_at"] != first
+        assert len(next(r for r in app.references if r.company == "Pacific Coffee Roasters").calls) == 2
