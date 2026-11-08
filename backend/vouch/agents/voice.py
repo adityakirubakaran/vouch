@@ -41,6 +41,14 @@ END_CALL_TOOL = {
 }
 
 
+def voicemail_message(seller: str, applicant: str) -> str:
+    """What Vouch leaves on a voicemail: who is calling and why, and that it will try again."""
+    return (
+        f"Hi, this is Vouch, an AI assistant for {seller}'s credit team, calling about a trade reference "
+        f"for {applicant}. We'll try you again later. Thank you."
+    )
+
+
 def greeting(seller: str, applicant: str, contact_name: Optional[str]) -> str:
     who = f" for {contact_name.split()[0]}" if contact_name else ""
     return (

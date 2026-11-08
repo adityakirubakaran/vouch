@@ -990,6 +990,30 @@
   color: var(--paper);
 }
 
+.bubble.machine {
+  align-self: flex-end;
+  background: transparent;
+  border: 1px solid var(--dark-line);
+  color: var(--dark-muted);
+  font-style: italic;
+}
+
+.bubble-label {
+  display: block;
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.bubble.machine .bubble-label {
+  color: #c9c9c9;
+}
+
+.bubble.left-message .bubble-label {
+  color: var(--deep-olive);
+}
+
 .bubble.typing::after {
   content: "";
   display: inline-block;

@@ -202,6 +202,8 @@ export interface TranscriptTurn {
   text: string;
   ts: string;
   interrupted?: boolean;
+  voicemail?: boolean; // words from a voicemail greeting, not a person
+  voicemail_message?: boolean; // the message Vouch left on the voicemail
 }
 
 export interface CallResult {

@@ -153,10 +153,10 @@ def plan(outcome: str, misses: int, callback_at: Optional[str], now_utc: datetim
             return FollowUp(retry_seconds, None, f"Asked for a callback{asked}; calling back now")
         when = parse_callback(callback_at, now, hour) or next_business_morning(now, hour)
         return FollowUp(max(retry_seconds, (when - now).total_seconds()), when, f"Asked for a callback{asked}. Calling back {describe(when, now)}")
-    label = {"no_answer": "No answer", "voicemail": "Left a voicemail", "failed": "Call failed"}.get(outcome, outcome)
+    label = {"no_answer": "No answer", "voicemail": "Reached voicemail", "failed": "Call failed"}.get(outcome, outcome)
     if outcome in ("no_answer", "voicemail") and next_day_after > 0 and misses >= next_day_after:
         when = next_business_morning(now, hour)
-        times = "twice" if misses == 2 else f"{misses} times"
+        nth = {2: "second", 3: "third", 4: "fourth"}.get(misses, f"{misses}th")
         return FollowUp(max(retry_seconds, (when - now).total_seconds()), when,
-                        f"{label} {times}. Trying again {describe(when, now)}")
+                        f"{label}, the {nth} call without an answer. Trying again {describe(when, now)}")
     return FollowUp(retry_seconds, None, f"{label}, trying again")

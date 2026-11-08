@@ -55,7 +55,9 @@ def test_plan_follow_up():
     first = followup.plan("no_answer", 1, None, now, PT, **kw)
     assert first.when is None and first.after_seconds == 30 and first.reason == "No answer, trying again"
     second = followup.plan("no_answer", 2, None, now, PT, **kw)
-    assert second.reason == "No answer twice. Trying again Mon, Nov 9 at 10:00 AM PST"
+    assert second.reason == "No answer, the second call without an answer. Trying again Mon, Nov 9 at 10:00 AM PST"
+    vm = followup.plan("voicemail", 2, None, now, PT, **kw)
+    assert vm.reason.startswith("Reached voicemail, the second call without an answer.")
     # Same moment, a New York reference: 10 AM their time.
     ny = followup.plan("no_answer", 2, None, now, NY, **kw)
     assert ny.when.strftime("%H:%M %Z") == "10:00 EST"

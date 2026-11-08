@@ -5,7 +5,11 @@
       "person": "Linda Park, accounts receivable clerk at Harbor Paper Co.",
       "attempts": [
         {
-          "behavior": "no_answer"
+          "behavior": "voicemail",
+          "greeting": [
+            "Your call",
+            "has been forwarded to an automated voice messaging system. 4 1 5 5 5 5 0 1 1 7 is not available. At the tone, please record your message."
+          ]
         },
         {
           "behavior": "answer",

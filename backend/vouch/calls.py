@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, Protocol
 
@@ -34,6 +35,23 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger("vouch.calls")
 
 MAX_AGENT_TURNS = 14
+
+# How carrier and personal voicemail greetings sound once transcribed. Matching one
+# means a machine answered: the agent stops interviewing and leaves a message.
+VOICEMAIL_PHRASES = re.compile(
+    r"forwarded to (an? )?(automated )?voice|voice ?mail|voice messaging|messaging system|"
+    r"leave (me )?(a |your )?(brief |short )?message|(after|at) the (tone|beep)|record your message|"
+    r"(is|are) not available|unavailable to take|can'?t (take|come to|get to) (your call|the phone)|"
+    r"you('ve| have) reached|mailbox|the person you('re| are) (trying to reach|calling)|"
+    r"the (number|subscriber) you('ve| have)? ?(dialed|called|are trying)|not in service",
+    re.IGNORECASE,
+)
+# First words that may start a voicemail greeting. Hold the reply a moment to hear more.
+VOICEMAIL_OPENERS = re.compile(
+    r"^\W*(your call|you('ve| have) reached|hi,? you('ve| have)|hello,? you('ve| have)|the (person|number|subscriber)|"
+    r"please leave|sorry,? (i|we) (can'?t|missed))",
+    re.IGNORECASE,
+)
 
 
 class Transport(Protocol):
@@ -129,6 +147,10 @@ class RelaySession:
         self._inbox: "asyncio.Queue[Optional[dict]]" = asyncio.Queue()
         self._reader: Optional[asyncio.Task] = None
         self._barge_in = False  # set by the reader the moment an interrupt arrives
+        self.voicemail = False  # a machine answered
+        self.voicemail_left = False
+        self._vm_task: Optional[asyncio.Task] = None
+        self._transport: Optional[Transport] = None
 
     async def _read(self, transport: Transport) -> None:
         """Read the socket in its own task so an interrupt is seen while the agent
@@ -154,6 +176,8 @@ class RelaySession:
                 await transport.send({"type": "end", "handoffData": json.dumps({"reason": "call_closed"})})
                 return
             started = True
+            self.s.calls.sessions[self.ctx.call_id] = self
+            self._transport = transport
             self._reader = asyncio.create_task(self._read(transport))
             text = voice.greeting(self.ctx.seller, self.ctx.applicant, self.ctx.contact_name)
             if not self.greeting_spoken:
@@ -173,6 +197,15 @@ class RelaySession:
                     if not msg.get("last", True) or not pending_user:
                         continue
                     said, pending_user = pending_user, ""
+                    if self.voicemail:
+                        self._add_turn("reference", said, voicemail=True)
+                        continue
+                    if turns == 0 and VOICEMAIL_OPENERS.search(said) and not VOICEMAIL_PHRASES.search(said):
+                        said = await self._hold_for_more(said)
+                    if VOICEMAIL_PHRASES.search(said) or self.s.calls.voicemail_detected(self.ctx.call_id):
+                        self._add_turn("reference", said, voicemail=True)
+                        self._enter_voicemail(transport)
+                        continue
                     self._add_turn("reference", said)
                     self._push_user(said)
                     self._schedule_live()
@@ -196,9 +229,76 @@ class RelaySession:
         finally:
             if self._reader is not None:
                 self._reader.cancel()
+            if self._vm_task is not None:
+                self._vm_task.cancel()
+            self.s.calls.sessions.pop(self.ctx.call_id, None)
             await transport.close()
             if started:
                 await self._finalize()
+
+    # ------------------------------------------------------------- voicemail
+
+    async def _hold_for_more(self, said: str) -> str:
+        """The first words sound like the start of a voicemail greeting ("Your call...").
+        Wait briefly for the rest before answering, instead of talking over a machine."""
+        wait = 2.5 * self._time_scale()
+        while True:
+            try:
+                msg = await asyncio.wait_for(self._inbox.get(), timeout=wait)
+            except asyncio.TimeoutError:
+                return said
+            if msg is None:
+                self._inbox.put_nowait(None)  # let the main loop see the hang-up
+                return said
+            if msg.get("type") == "prompt" and msg.get("voicePrompt"):
+                said = f"{said} {msg['voicePrompt']}".strip()
+                if VOICEMAIL_PHRASES.search(said):
+                    return said
+                wait = 1.5 * self._time_scale()
+
+    def _enter_voicemail(self, transport: Transport) -> None:
+        if self.voicemail:
+            return
+        self.voicemail = True
+        self._barge_in = True  # stop any reply that is still streaming
+        self.s.calls.note_voicemail(self.ctx.call_id)
+        self._vm_task = asyncio.create_task(self._leave_voicemail_later(transport))
+
+    async def _leave_voicemail_later(self, transport: Transport) -> None:
+        """Twilio's answering machine detection leaves the message after the beep when it
+        is on. This is the fallback when it is off, or never reports a machine."""
+        st = self.s.settings
+        if self.ctx.channel == "twilio":
+            delay = 25.0 if st.twilio_amd else 6.0
+        else:
+            delay = 3.0 * self._time_scale()
+        await asyncio.sleep(delay)
+        if self.voicemail_left:
+            return
+        message = voice.voicemail_message(self.ctx.seller, self.ctx.applicant)
+        await self._speak(transport, message)
+        self.voicemail_left = True
+        self._add_turn("agent", message, voicemail_message=True)
+        await asyncio.sleep(voice.estimate_speech_seconds(message) * self._time_scale())
+        self.end_hint = {"reason": "voicemail"}
+        await transport.send({"type": "end", "handoffData": json.dumps(self.end_hint)})
+        self._inbox.put_nowait(None)
+
+    def on_machine_detected(self, message: Optional[str]) -> None:
+        """Twilio's answering machine detection reported a machine. When it is leaving
+        the message itself (by replacing the call's TwiML), record that here."""
+        if not message:
+            # Twilio could not take over the call; leave the message over the relay.
+            if self._transport is not None:
+                self._enter_voicemail(self._transport)
+            return
+        self.voicemail = True
+        self._barge_in = True
+        if not self.voicemail_left:
+            self.voicemail_left = True
+            self._add_turn("agent", message, voicemail_message=True)
+        if self._vm_task is not None:
+            self._vm_task.cancel()
 
     def _time_scale(self) -> float:
         # Real phone calls need real pauses; simulated ones can run fast in tests.
@@ -281,8 +381,8 @@ class RelaySession:
                 break
         self.s.calls.save_transcript(self.ctx.call_id, self.transcript)
 
-    def _add_turn(self, role: str, text: str) -> None:
-        turn = {"role": role, "text": text, "ts": utcnow().isoformat()}
+    def _add_turn(self, role: str, text: str, **flags: bool) -> None:
+        turn = {"role": role, "text": text, "ts": utcnow().isoformat(), **{k: v for k, v in flags.items() if v}}
         self.transcript.append(turn)
         self.s.calls.save_transcript(self.ctx.call_id, self.transcript)
         self.s.bus.publish(
@@ -314,10 +414,10 @@ class RelaySession:
                 await asyncio.wait_for(self._live_task, timeout=10)
             except Exception:  # noqa: BLE001
                 pass
-        voicemail = self.s.calls.voicemail_detected(self.ctx.call_id)
+        voicemail = self.voicemail or self.s.calls.voicemail_detected(self.ctx.call_id) or (self.end_hint or {}).get("reason") == "voicemail"
         spoke = any(t["role"] == "reference" for t in self.transcript)
         if voicemail:
-            result = CallResult(outcome="voicemail", summary="Reached voicemail.")
+            result = CallResult(outcome="voicemail", summary="Reached voicemail and left a message." if self.voicemail_left else "Reached voicemail.")
         elif not spoke:
             result = CallResult(outcome="no_answer", summary="The call connected but no one spoke.")
         elif (self.end_hint or {}).get("reason") == "failed":
@@ -431,6 +531,39 @@ class PersonaBot:
             return ""
 
 
+DEFAULT_VOICEMAIL_GREETING = [
+    "Your call",
+    "has been forwarded to an automated voice messaging system. The person you are trying to reach is not available. "
+    "At the tone, please record your message.",
+]
+
+
+class VoicemailBot:
+    """A voicemail greeting on a simulated call, transcribed in pieces the way
+    ConversationRelay delivers it ("Your call" ... "has been forwarded ...")."""
+
+    def __init__(self, services: "Services", ctx: CallContext, attempt: dict) -> None:
+        self.s = services
+        self.ctx = ctx
+        self.chunks = attempt.get("greeting") or DEFAULT_VOICEMAIL_GREETING
+
+    async def run(self, transport: Transport) -> None:
+        await transport.send({"type": "setup", "callSid": f"SIM-{self.ctx.call_id}", "customParameters": {"call_id": self.ctx.call_id}})
+        played = False
+        try:
+            while True:
+                msg = await transport.receive()
+                if msg is None or msg.get("type") == "end":
+                    break
+                if msg.get("type") == "text" and msg.get("last") and not played:
+                    played = True
+                    for chunk in self.chunks:
+                        await asyncio.sleep(0.4 * self.s.settings.sim_time_scale)
+                        await transport.send({"type": "prompt", "voicePrompt": chunk, "lang": "en-US", "last": True})
+        finally:
+            await transport.close()
+
+
 @fake_handler(PERSONA_TOOL)
 def _fake_persona(system: str, content: list[dict]) -> dict:
     raw = text_of(content).split("\n\nConversation so far:")[0]
@@ -464,6 +597,7 @@ class CallManager:
         self.s = services
         self._tasks: set[asyncio.Task] = set()
         self._voicemail: set[str] = set()
+        self.sessions: dict[str, RelaySession] = {}  # live conversations by call id
 
     # ------------------------------------------------------------ helpers
 
@@ -552,9 +686,21 @@ class CallManager:
             if provider_sid and not call.provider_sid:
                 call.provider_sid = provider_sid
             app_id, ref_id = call.application_id, call.reference_id
-        self.s.bus.publish("call.updated", "Reference picked up", application_id=app_id,
+        # A machine can answer too, so this says connected, not "picked up".
+        self.s.bus.publish("call.updated", "Call connected", application_id=app_id,
                            data={"call_id": call_id, "reference_id": ref_id, "status": "in_progress"})
         return True
+
+    def note_voicemail(self, call_id: str) -> None:
+        if call_id in self._voicemail:
+            return
+        self._voicemail.add(call_id)
+        with self.s.db.session() as s:
+            call = s.get(Call, call_id)
+            ids = (call.application_id, call.reference_id) if call else (None, None)
+        if ids[0]:
+            self.s.bus.publish("call.updated", "Reached voicemail", application_id=ids[0],
+                               data={"call_id": call_id, "reference_id": ids[1], "status": "in_progress", "voicemail": True})
 
     def save_transcript(self, call_id: str, transcript: list[dict]) -> None:
         self._set(call_id, transcript=[dict(t) for t in transcript])
@@ -619,6 +765,12 @@ class CallManager:
         if attempt.get("behavior") == "no_answer":
             await asyncio.sleep(4 * scale)
             self.finish(call_id, CallResult(outcome="no_answer", summary="No answer after several rings."))
+            return
+        if attempt.get("behavior") == "voicemail":
+            await asyncio.sleep(1.5 * scale)
+            agent_side, machine_side = transport_pair()
+            session = RelaySession(self.s, ctx, greeting_spoken=False)
+            await asyncio.gather(session.run(agent_side), VoicemailBot(self.s, ctx, attempt).run(machine_side))
             return
         await asyncio.sleep(1.5 * scale)
         agent_side, person_side = transport_pair()
@@ -730,20 +882,27 @@ class CallManager:
     async def twilio_amd(self, call_id: str, answered_by: str) -> None:
         if not answered_by.startswith("machine") and answered_by != "fax":
             return
-        self._voicemail.add(call_id)
+        self.note_voicemail(call_id)
         ctx = self.context(call_id)
+        session = self.sessions.get(call_id)
+        if session is not None and session.voicemail_left:
+            return  # the relay already left the message
         with self.s.db.session() as s:
             call = s.get(Call, call_id)
             sid = call.provider_sid if call else None
-        if sid:
-            msg = (
-                f"Hi, this is Vouch, an AI assistant for {ctx.seller}'s credit team, calling about a trade reference "
-                f"for {ctx.applicant}. We'll try you again later. Thank you."
-            )
-            try:
-                await TwilioClient(self.s.settings).update_call_twiml(sid, say_and_hangup_twiml(msg))
-            except Exception as exc:  # noqa: BLE001
-                log.warning("could not leave voicemail: %s", exc)
+        if not sid:
+            return
+        msg = voice.voicemail_message(ctx.seller, ctx.applicant)
+        try:
+            # Replacing the call's TwiML ends the relay and plays the message after the beep.
+            await TwilioClient(self.s.settings).update_call_twiml(sid, say_and_hangup_twiml(msg))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not leave voicemail: %s", exc)
+            if session is not None:
+                session.on_machine_detected(None)  # the relay's fallback will leave it
+            return
+        if session is not None:
+            session.on_machine_detected(msg)
 
     async def hangup(self, call_id: str) -> None:
         with self.s.db.session() as s:

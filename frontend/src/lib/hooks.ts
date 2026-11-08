@@ -134,6 +134,8 @@ export function useLiveApplication(id: string): LiveApplication {
           role: data.role === "agent" ? "agent" : "reference",
           text: String(data.text ?? ""),
           ts: String(data.ts ?? ev.ts),
+          voicemail: data.voicemail === true || undefined,
+          voicemail_message: data.voicemail_message === true || undefined,
         };
         setCalls((prev) => {
           const cur = prev[callId] ?? { draft: "", turns: [], findings: null };

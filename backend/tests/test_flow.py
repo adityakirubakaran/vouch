@@ -33,7 +33,12 @@ async def test_acme_flags_fake_reference_and_recommends_reduced_limit(services):
 
         harbor = refs["Harbor Paper Co."]
         assert harbor.status == "completed"
-        assert [c.outcome for c in harbor.calls] == ["no_answer", "completed"]  # first attempt rang out
+        assert [c.outcome for c in harbor.calls] == ["voicemail", "completed"]  # first attempt reached voicemail
+        vm = harbor.calls[0]
+        assert vm.result["summary"] == "Reached voicemail and left a message."
+        assert [t.get("voicemail", False) for t in vm.transcript if t["role"] == "reference"] == [True]
+        assert vm.transcript[-1].get("voicemail_message") and "We'll try you again later" in vm.transcript[-1]["text"]
+        assert len([t for t in vm.transcript if t["role"] == "agent"]) == 2  # greeting and the message, no questions
         assert harbor.findings["high_credit"] == 40000
         assert harbor.findings["avg_days_to_pay"] == 28
 

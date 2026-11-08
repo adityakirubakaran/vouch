@@ -28,7 +28,7 @@ Open Harbor's evidence list.
 
 ## 4. The live call (1:45 to 3:00)
 
-Harbor Paper rings the phone. (On the simulated line, its first attempt goes unanswered and the card shows the retry countdown; click **Call now** if you don't want to wait.) The second person answers as Linda Park:
+Harbor Paper rings the phone. (On the simulated line, its first attempt reaches voicemail: the panel shows the greeting, the short message Vouch left, and the retry countdown. Click **Call now** if you don't want to wait.) If the real call goes to voicemail, Vouch leaves the same message instead of starting the interview. The second person answers as Linda Park:
 
 - "This is Linda in accounts receivable. Sure, go ahead."
 - When asked for numbers: "Let me pull up the account, one second." Then: customer since 2022, Net 30.

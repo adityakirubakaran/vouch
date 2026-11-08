@@ -316,3 +316,34 @@ def test_reference_line_can_be_switched_and_called(client_factory, fake_dial):
     assert after["call_channel"] == "twilio" and after["calls"][-1]["channel"] == "twilio"
     c.post(f"/api/references/{coastal['id']}/call-channel", json={"channel": None})
     assert next(r for r in c.get(f"/api/applications/{app_id}").json()["references"] if r["id"] == coastal["id"])["call_channel"] is None
+
+
+def test_voicemail_on_a_real_call_is_not_treated_as_a_person(client_factory, fake_dial, monkeypatch):
+    """A carrier greeting arrives as "Your call" then "has been forwarded...". The agent
+    must not start the interview; when Twilio's machine detection reports a machine,
+    Vouch leaves its message and records the call as voicemail."""
+    updates = []
+
+    async def update_call_twiml(self_client, sid, twiml):  # noqa: N805
+        updates.append((sid, twiml))
+
+    monkeypatch.setattr("vouch.calls.TwilioClient.update_call_twiml", update_call_twiml)
+    c = client_factory(**TWILIO, demo_reference_phone="+14155550199", real_call_limit=1)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    call = wait_until(lambda: twilio_calls(c, app_id))[0]
+    with c.websocket_connect("/twilio/relay") as ws:
+        ws.send_text(json.dumps({"type": "setup", "callSid": "CA1", "customParameters": {"call_id": call["id"]}}))
+        ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "Your call", "last": True}))
+        ws.send_text(json.dumps({"type": "prompt", "voicePrompt": "has been forwarded to an automated voice messaging system.", "last": True}))
+        time.sleep(0.3)
+        params = {"AnsweredBy": "machine_end_beep", "CallSid": "CA1"}
+        url = f"https://vouch.test/twilio/amd?call_id={call['id']}"
+        assert c.post(f"/twilio/amd?call_id={call['id']}", data=params,
+                      headers={"X-Twilio-Signature": expected_signature("secret", url, params)}).status_code == 204
+        time.sleep(0.2)
+    got = wait_until(lambda: (r := c.get(f"/api/calls/{call['id']}").json())["status"] == "ended" and r)
+    assert got["outcome"] == "voicemail" and got["result"]["summary"] == "Reached voicemail and left a message."
+    agent = [t for t in got["transcript"] if t["role"] == "agent"]
+    assert len(agent) == 2 and agent[-1].get("voicemail_message")  # the greeting, then the message; no interview
+    assert all(t.get("voicemail") for t in got["transcript"] if t["role"] == "reference")
+    assert updates and "try you again later" in updates[0][1]  # Twilio plays it after the beep

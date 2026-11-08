@@ -209,12 +209,20 @@ function Transcript({ call, live }: { call: CallOut; live?: LiveCallState }) {
   }
   return (
     <div className="bubbles" ref={box}>
-      {turns.map((t, i) => (
-        <div key={i} className={`bubble ${t.role}`}>
-          {t.text}
-          {t.interrupted ? <span className="interrupted"> (interrupted)</span> : null}
-        </div>
-      ))}
+      {turns.map((t, i) =>
+        t.voicemail ? (
+          <div key={i} className="bubble machine">
+            <span className="bubble-label">Voicemail greeting</span>
+            {t.text}
+          </div>
+        ) : (
+          <div key={i} className={`bubble ${t.role}${t.voicemail_message ? " left-message" : ""}`}>
+            {t.voicemail_message ? <span className="bubble-label">Message left on voicemail</span> : null}
+            {t.text}
+            {t.interrupted ? <span className="interrupted"> (interrupted)</span> : null}
+          </div>
+        ),
+      )}
       {draft ? <div className="bubble agent typing">{draft}</div> : null}
     </div>
   );
@@ -279,6 +287,8 @@ export function CallPanel({
   const step = r.step;
   const retryIn = step?.status === "pending" && step.next_run_at ? (new Date(step.next_run_at).getTime() - now) / 1000 : null;
   const inProgress = call && call.status !== "ended";
+  // A machine answered: the greeting came from voicemail, not a person.
+  const isVoicemail = Boolean(call && mergedTranscript(call.transcript, live[call.id]).some((t) => t.voicemail));
   const canCallNow = step && (step.status === "pending" || (step.status === "done" && r.status !== "completed"));
 
   async function callNow() {
@@ -366,7 +376,9 @@ export function CallPanel({
             <div className="call-status">
               <span className={`live-dot${inProgress ? " on" : ""}`} />
               <span>
-                {call.status === "in_progress"
+                {call.outcome === "voicemail" || (call.status !== "ended" && isVoicemail)
+                  ? `${call.status === "ended" ? "Reached voicemail" : "Voicemail"}${call.started_at ? `, ${duration(call.started_at, call.status === "ended" ? call.ended_at : null)}` : ""}`
+                  : call.status === "in_progress"
                   ? `Live call ${duration(call.started_at, null)}`
                   : call.status === "ringing"
                     ? "Ringing"
