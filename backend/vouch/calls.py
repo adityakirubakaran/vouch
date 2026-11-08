@@ -499,6 +499,19 @@ class CallManager:
             return "browser"
         return channel
 
+    def line_busy(self, channel: str) -> bool:
+        """Browser calls all ring the one Phone page, and with DEMO_REFERENCE_PHONE every
+        Twilio call rings one phone. Either line takes one call at a time."""
+        if channel == "browser":
+            q = select(Call).where(Call.channel == "browser", Call.status != "ended")
+        elif channel == "twilio" and self.s.settings.demo_reference_phone:
+            q = select(Call).where(Call.channel == "twilio", Call.status != "ended",
+                                   Call.dialed_number == normalize_phone(self.s.settings.demo_reference_phone))
+        else:
+            return False
+        with self.s.db.session() as s:
+            return s.scalars(q).first() is not None
+
     def create_call(self, reference_id: str, attempt: int, channel: str) -> str:
         with self.s.db.session() as s:
             ref = s.get(Reference, reference_id)

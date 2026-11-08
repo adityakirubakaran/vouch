@@ -89,10 +89,11 @@ Set `CALL_CHANNEL` in `.env`, or switch per application on the review screen.
 - `simulated` (default): Claude plays each reference from a persona in `backend/vouch/fixtures/personas.json`, including one who asks for a callback and one who only gives written references.
 - `browser`: open **Phone** in a second window. When Vouch calls, answer and talk (Chrome speech recognition) or type.
 - `twilio`: real phone calls.
-  1. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` to `.env`.
-  2. `make start` (single server on :8000) and, in another terminal, `make tunnel`.
-  3. Put the tunnel's https URL in `PUBLIC_BASE_URL` and restart.
-  4. For a live demo, set `DEMO_REFERENCE_PHONE` to a teammate's phone so every reference call rings it, while the memo still shows the number from the application.
+  1. In the Twilio Console, accept the AI/ML features addendum that ConversationRelay requires (Voice, Settings, Privacy & Security). A trial account can only call verified numbers and restricts custom TwiML, so upgrade the account and buy a voice number for a demo.
+  2. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` to `.env`.
+  3. `make start` (single server on :8000, open http://localhost:8000) and, in another terminal, `brew install cloudflared` once, then `make tunnel`.
+  4. Put the tunnel's https URL in `PUBLIC_BASE_URL` and restart `make start`. The quick tunnel URL changes every time the tunnel restarts.
+  5. For a live demo, set `DEMO_REFERENCE_PHONE` to your own phone so every reference call rings it, while the memo still shows the number from the application. Calls to that phone go one at a time; the same goes for the browser phone.
 
 ### Security note
 
@@ -108,7 +109,7 @@ Create an app at developer.intuit.com, add `http://localhost:8000/api/integratio
 make test
 ```
 
-The backend suite (67 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
+The backend suite (68 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
 
 `make smoke` is the live check: with your API key it has Claude read both sample scans and compares every field with the answer key, then runs one application end to end.
 

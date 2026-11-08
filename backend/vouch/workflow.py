@@ -310,7 +310,11 @@ class Workflow:
             return Done({"outcome": "unreachable"})
         # The application row is the source of truth for the channel; step state can
         # be stale if the reviewer switched channels while this handler was running.
-        channel = self.s.calls.resolve_channel(state.pop("channel", None) or app_channel or state.get("default_channel"))
+        channel = self.s.calls.resolve_channel(state.get("channel") or app_channel or state.get("default_channel"))
+        if self.s.calls.line_busy(channel):
+            # One Phone page, or one demo phone: ring it for one reference at a time.
+            return Retry(after_seconds=min(5.0, max(0.5, st.call_retry_seconds)), reason="Waiting for the phone line to be free")
+        state.pop("channel", None)
         attempts += 1
         state["call_attempts"] = attempts
         call_id = self.s.calls.create_call(ctx.reference_id, attempts, channel)  # type: ignore[arg-type]

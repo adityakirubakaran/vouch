@@ -241,3 +241,19 @@ def test_call_channel_chosen_before_verification_applies(client_factory):
     assert {r["application_id"] for r in ringing} == {app_id}
     assert c.get(f"/api/applications/{app_id}").json()["call_channel"] == "browser"
     assert c.post(f"/api/applications/{app_id}/call-channel", json={"channel": "fax"}).status_code == 400
+
+
+def test_demo_phone_rings_for_one_reference_at_a_time(client_factory, fake_dial):
+    """With DEMO_REFERENCE_PHONE every call rings one phone, so the second reference
+    waits until the first call is over instead of calling at the same moment."""
+    c = client_factory(**TWILIO, demo_reference_phone="+14155550199", call_retry_seconds=0.5)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    first = wait_until(lambda: twilio_calls(c, app_id))[0]
+    time.sleep(1.5)
+    assert len(fake_dial.dialed) == 1 and len(twilio_calls(c, app_id)) == 1
+    assert first["dialed_number"] == "(415) 555-0199"
+    params = {"CallStatus": "no-answer", "CallSid": "CA1"}
+    url = f"https://vouch.test/twilio/status?call_id={first['id']}"
+    c.post(f"/twilio/status?call_id={first['id']}", data=params, headers={"X-Twilio-Signature": expected_signature("secret", url, params)})
+    wait_until(lambda: len(fake_dial.dialed) >= 2)
+    assert len(twilio_calls(c, app_id)) == 1
