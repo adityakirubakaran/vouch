@@ -18,9 +18,13 @@ New application, then upload `samples/acme-bakery-supply-credit-application.pdf`
 
 ## 3. Catch the fake reference (1:00 to 1:45)
 
-References section: Bayview Packaging is flagged.
+References section: Harbor and Coastal score 99, Bayview Packaging scores 1 and is flagged. Its evidence list is already open.
 
-> Bayview was registered 23 days ago, at the applicant's own address, using the applicant's phone number, and its only officer is the applicant's owner. Vouch won't call it. These are rules, not a model's guess, so we can tell the applicant exactly why.
+> Every reference gets an authenticity score. For Bayview, caller ID and Google both list its phone number to Acme, the applicant. It was registered 23 days ago, at Acme's address, and its only officer is Acme's owner. Vouch won't call it.
+
+Open Harbor's evidence list.
+
+> Harbor scores 99 for the opposite reasons. The carrier's caller ID says Harbor Paper, Google lists the number at Harbor's address, and IPQualityScore's fraud model rates it 6 out of 100. Each line names its source, and the weights live in the credit policy file, so we can tell an applicant exactly why a reference didn't count.
 
 ## 4. The live call (1:45 to 3:00)
 

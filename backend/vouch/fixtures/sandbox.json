@@ -1,5 +1,5 @@
 {
-  "_note": "Sandbox registry, domain, and website data for the fictional demo companies. Dates given as {\"days_ago\": N} are relative to today so the demo stays current.",
+  "_note": "Sandbox registry, domain, website, and phone data for the fictional demo companies. Dates given as {\"days_ago\": N} are relative to today so the demo stays current. Phone entries stand in for IPQualityScore, Twilio Lookup, and Google Places answers; caller names are cut at 15 characters the way carrier caller ID (CNAM) is.",
   "companies": [
     {
       "name": "Acme Bakery Supply LLC",
@@ -8,7 +8,9 @@
       "status": "Active",
       "incorporated": "2014-03-11",
       "registered_address": "1450 Industrial Way, Oakland, CA 94607",
-      "officers": ["Maria Delgado"]
+      "officers": [
+        "Maria Delgado"
+      ]
     },
     {
       "name": "Harbor Paper Co.",
@@ -17,7 +19,10 @@
       "status": "Active",
       "incorporated": "2011-06-20",
       "registered_address": "88 Pier Road, San Francisco, CA 94111",
-      "officers": ["Gregory Lam", "Linda Park"]
+      "officers": [
+        "Gregory Lam",
+        "Linda Park"
+      ]
     },
     {
       "name": "Coastal Flour Mills Inc.",
@@ -26,16 +31,23 @@
       "status": "Active",
       "incorporated": "2016-02-08",
       "registered_address": "2200 Mill Street, Stockton, CA 95203",
-      "officers": ["Raj Patel", "Ana Moreno"]
+      "officers": [
+        "Raj Patel",
+        "Ana Moreno"
+      ]
     },
     {
       "name": "Bayview Packaging LLC",
       "company_number": "202660118803",
       "jurisdiction": "us_ca",
       "status": "Active",
-      "incorporated": {"days_ago": 23},
+      "incorporated": {
+        "days_ago": 23
+      },
       "registered_address": "1450 Industrial Way, Unit B, Oakland, CA 94607",
-      "officers": ["Maria Delgado"]
+      "officers": [
+        "Maria Delgado"
+      ]
     },
     {
       "name": "Ridgeline Cafe Group Inc.",
@@ -44,7 +56,10 @@
       "status": "Active",
       "incorporated": "2019-04-15",
       "registered_address": "310 J Street, Suite 400, Sacramento, CA 95814",
-      "officers": ["Hannah Ruiz", "James Okafor"]
+      "officers": [
+        "Hannah Ruiz",
+        "James Okafor"
+      ]
     },
     {
       "name": "Sierra Dairy Distributors",
@@ -53,7 +68,9 @@
       "status": "Active",
       "incorporated": "2006-09-01",
       "registered_address": "41 Creamery Lane, Auburn, CA 95603",
-      "officers": ["Ellen Brooks"]
+      "officers": [
+        "Ellen Brooks"
+      ]
     },
     {
       "name": "Golden Gate Restaurant Supply",
@@ -62,7 +79,10 @@
       "status": "Active",
       "incorporated": "1998-11-12",
       "registered_address": "900 Bayshore Blvd, San Francisco, CA 94124",
-      "officers": ["Marcus Lee", "Susan Lee"]
+      "officers": [
+        "Marcus Lee",
+        "Susan Lee"
+      ]
     },
     {
       "name": "Pacific Coffee Roasters",
@@ -71,29 +91,173 @@
       "status": "Active",
       "incorporated": "2012-05-30",
       "registered_address": "15 Harbor Street, Santa Cruz, CA 95060",
-      "officers": ["Dana Whitfield"]
+      "officers": [
+        "Dana Whitfield"
+      ]
     }
   ],
   "domains": {
-    "acmebakerysupply.example": {"created": "2014-04-02"},
-    "harborpaper.example": {"created": "2011-08-14"},
-    "coastalflour.example": {"created": "2016-03-21"},
-    "bayviewpackaging.example": {"created": {"days_ago": 14}},
-    "ridgelinecafe.example": {"created": "2019-05-02"},
-    "sierradairy.example": {"created": "2007-01-19"},
-    "ggrestaurantsupply.example": {"created": "2001-03-07"},
-    "pacificroasters.example": {"created": "2012-07-11"},
-    "firstbaycb.example": {"created": "2003-10-01"},
-    "redwoodfcu.example": {"created": "1999-02-11"}
+    "acmebakerysupply.example": {
+      "created": "2014-04-02"
+    },
+    "harborpaper.example": {
+      "created": "2011-08-14"
+    },
+    "coastalflour.example": {
+      "created": "2016-03-21"
+    },
+    "bayviewpackaging.example": {
+      "created": {
+        "days_ago": 14
+      }
+    },
+    "ridgelinecafe.example": {
+      "created": "2019-05-02"
+    },
+    "sierradairy.example": {
+      "created": "2007-01-19"
+    },
+    "ggrestaurantsupply.example": {
+      "created": "2001-03-07"
+    },
+    "pacificroasters.example": {
+      "created": "2012-07-11"
+    },
+    "firstbaycb.example": {
+      "created": "2003-10-01"
+    },
+    "redwoodfcu.example": {
+      "created": "1999-02-11"
+    }
   },
   "websites": {
-    "Harbor Paper Co.": {"url": "https://harborpaper.example", "phones": ["(415) 555-0117", "(415) 555-0110"]},
-    "Coastal Flour Mills Inc.": {"url": "https://coastalflour.example", "phones": ["(209) 555-0163"]},
-    "Bayview Packaging LLC": {"url": "https://bayviewpackaging.example", "phones": []},
-    "Acme Bakery Supply LLC": {"url": "https://acmebakerysupply.example", "phones": ["(510) 555-0142"]},
-    "Sierra Dairy Distributors": {"url": "https://sierradairy.example", "phones": ["(530) 555-0108"]},
-    "Golden Gate Restaurant Supply": {"url": "https://ggrestaurantsupply.example", "phones": ["(415) 555-0151", "(415) 555-0150"]},
-    "Pacific Coffee Roasters": {"url": "https://pacificroasters.example", "phones": ["(831) 555-0196"]},
-    "Ridgeline Cafe Group Inc.": {"url": "https://ridgelinecafe.example", "phones": ["(916) 555-0129"]}
+    "Harbor Paper Co.": {
+      "url": "https://harborpaper.example",
+      "phones": [
+        "(415) 555-0117",
+        "(415) 555-0110"
+      ]
+    },
+    "Coastal Flour Mills Inc.": {
+      "url": "https://coastalflour.example",
+      "phones": [
+        "(209) 555-0163"
+      ]
+    },
+    "Bayview Packaging LLC": {
+      "url": "https://bayviewpackaging.example",
+      "phones": []
+    },
+    "Acme Bakery Supply LLC": {
+      "url": "https://acmebakerysupply.example",
+      "phones": [
+        "(510) 555-0142"
+      ]
+    },
+    "Sierra Dairy Distributors": {
+      "url": "https://sierradairy.example",
+      "phones": [
+        "(530) 555-0108"
+      ]
+    },
+    "Golden Gate Restaurant Supply": {
+      "url": "https://ggrestaurantsupply.example",
+      "phones": [
+        "(415) 555-0151",
+        "(415) 555-0150"
+      ]
+    },
+    "Pacific Coffee Roasters": {
+      "url": "https://pacificroasters.example",
+      "phones": [
+        "(831) 555-0196"
+      ]
+    },
+    "Ridgeline Cafe Group Inc.": {
+      "url": "https://ridgelinecafe.example",
+      "phones": [
+        "(916) 555-0129"
+      ]
+    }
+  },
+  "phones": {
+    "(415) 555-0117": {
+      "line_type": "landline",
+      "carrier": "AT&T California",
+      "caller_name": "HARBOR PAPER CO",
+      "caller_type": "BUSINESS",
+      "fraud_score": 6,
+      "listings": [
+        {
+          "name": "Harbor Paper Co.",
+          "address": "88 Pier Road, San Francisco, CA 94111"
+        }
+      ]
+    },
+    "(209) 555-0163": {
+      "line_type": "fixedVoip",
+      "carrier": "Comcast Business",
+      "caller_name": "COASTAL FLOUR M",
+      "caller_type": "BUSINESS",
+      "fraud_score": 14,
+      "listings": [
+        {
+          "name": "Coastal Flour Mills",
+          "address": "2200 Mill Street, Stockton, CA 95203"
+        }
+      ]
+    },
+    "(510) 555-0142": {
+      "line_type": "fixedVoip",
+      "carrier": "Comcast Business",
+      "caller_name": "ACME BAKERY SUP",
+      "caller_type": "BUSINESS",
+      "fraud_score": 22,
+      "listings": [
+        {
+          "name": "Acme Bakery Supply",
+          "address": "1450 Industrial Way, Oakland, CA 94607"
+        }
+      ]
+    },
+    "(530) 555-0108": {
+      "line_type": "landline",
+      "carrier": "AT&T California",
+      "caller_name": "SIERRA DAIRY DI",
+      "caller_type": "BUSINESS",
+      "fraud_score": 4,
+      "listings": [
+        {
+          "name": "Sierra Dairy Distributors",
+          "address": "41 Creamery Lane, Auburn, CA 95603"
+        }
+      ]
+    },
+    "(415) 555-0151": {
+      "line_type": "landline",
+      "carrier": "AT&T California",
+      "caller_name": null,
+      "caller_type": null,
+      "fraud_score": 9,
+      "listings": [
+        {
+          "name": "Golden Gate Restaurant Supply",
+          "address": "900 Bayshore Blvd, San Francisco, CA 94124"
+        }
+      ]
+    },
+    "(831) 555-0196": {
+      "line_type": "mobile",
+      "carrier": "Verizon Wireless",
+      "caller_name": "WHITFIELD DANA",
+      "caller_type": "CONSUMER",
+      "fraud_score": 18,
+      "listings": [
+        {
+          "name": "Pacific Coffee Roasters",
+          "address": "15 Harbor Street, Santa Cruz, CA 95060"
+        }
+      ]
+    }
   }
 }

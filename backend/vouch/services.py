@@ -10,6 +10,7 @@ from .db import Database
 from .engine import Engine
 from .events import EventBus
 from .llm import LLM, build_llm
+from .providers.phone import PhoneProvider
 from .providers.records import DomainProvider, RegistryProvider, WebsiteProvider
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -29,6 +30,7 @@ class Services:
     registry: RegistryProvider
     domains: DomainProvider
     websites: WebsiteProvider
+    phones: PhoneProvider
     calls: "CallManager"
     mailer: "Mailer"
     accounting: "Accounting"
@@ -56,6 +58,7 @@ def build_services(settings: Settings, llm: Optional[LLM] = None) -> Services:
         registry=RegistryProvider(settings),
         domains=DomainProvider(settings),
         websites=WebsiteProvider(settings),
+        phones=PhoneProvider(settings),
         calls=None,  # type: ignore[arg-type]
         mailer=None,  # type: ignore[arg-type]
         accounting=None,  # type: ignore[arg-type]

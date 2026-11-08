@@ -48,6 +48,7 @@ def test_samples_config_and_full_run(client_factory):
     assert c.get("/api/health").json() == {"ok": True}
     cfg = c.get("/api/config").json()
     assert cfg["llm"]["mode"] == "fake" and cfg["calls"]["default_channel"] == "simulated"
+    assert cfg["phone_checks"] == {"ipqs": False, "twilio": False, "google": False}
     samples = c.get("/api/samples").json()
     assert {s["id"] for s in samples} == {"acme", "ridgeline"} and all(s["available"] for s in samples)
 
@@ -55,6 +56,8 @@ def test_samples_config_and_full_run(client_factory):
     detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "ready_for_review" and d)
     assert detail["decision_detail"]["recommended_limit"] == 25000
     assert len(detail["references"]) == 3 and detail["bank"]["status"] == "completed"
+    scores = {r["company"]: r["checks"]["score"] for r in detail["references"]}
+    assert scores["Bayview Packaging LLC"]["band"] == "likely_fake" and scores["Harbor Paper Co."]["band"] == "likely_genuine"
     assert {e["code"] for e in detail["evidence"]} >= {"app", "reg-applicant", "call-ref-1", "call-ref-2", "fraud-ref-3", "bank"}
     assert c.get(detail["document_url"]).headers["content-type"] == "application/pdf"
     assert any(e["type"] == "memo.ready" for e in c.get(f"/api/applications/{app_id}/events").json())

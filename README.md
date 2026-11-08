@@ -19,7 +19,7 @@ Ramp's Accounts Receivable product (launched September 2026) automates invoice t
 ```mermaid
 flowchart LR
     A[Scanned application] --> X[Extraction agent<br/>Claude reads the PDF]
-    X --> V[Records agent<br/>registry, domain, website,<br/>fraud rules]
+    X --> V[Records agent<br/>registry, domain, website,<br/>phone intelligence,<br/>authenticity score]
     X --> B[Bank agent<br/>email request, read reply]
     V -->|verified references| C1[Voice agent<br/>calls reference 1]
     V -->|verified references| C2[Voice agent<br/>calls reference 2]
@@ -36,12 +36,12 @@ flowchart LR
 | Agent | Job | Claude's role | Deterministic part |
 |---|---|---|---|
 | Extraction | Scanned PDF or photo to structured application | Reads the document natively (vision), output forced through a typed tool schema | Pydantic validation, phone/email normalization |
-| Records | Is the business real? Are the references independent? | none | Registry lookup, domain age (RDAP), phone numbers on the company website, 10 fraud rules |
+| Records | Is the business real? Are the references independent? | none | Registry lookup, domain age (RDAP), website phone numbers, phone intelligence (IPQualityScore, Twilio Lookup, Google Places), Vouch's history of numbers, and a 1 to 99 authenticity score per reference |
 | Voice | Calls each verified reference and interviews them | Live conversation (Haiku, streamed), live note-taking, final transcript read (Sonnet) | Call retries, voicemail and callback handling |
 | Bank | Requests a bank reference by email | Reads the bank's free-text reply | Request letter template, wait with timeout |
 | Memo | Recommends a decision and limit | Writes the summary, citing evidence IDs | Credit policy (YAML) computes the decision and every number |
 
-![Reference checks: two verified, one flagged](docs/screenshots/reference-checks.png)
+![Reference checks: two references score 99, the fake one scores 1 and is flagged](docs/screenshots/reference-checks.png)
 
 ![A live reference call with the credit file filling in](docs/screenshots/live-call.png)
 
@@ -49,7 +49,14 @@ flowchart LR
 
 **Claude talks and reads; policy decides.** Every number in a recommendation comes from `backend/vouch/policy/credit_policy.yaml` applied in plain Python (`agents/decision.py`). Claude writes the explanation, and each sentence must cite evidence IDs that exist; unknown citations are dropped. Credit decisions need reasons you can repeat to an applicant and to a regulator, so a model never decides what is flagged or how much credit to extend.
 
-**Fraud checks are rules, not vibes.** `agents/verification.py` flags a reference if it shares the applicant's phone number, address, or officers, was registered recently, has a brand-new website domain, uses a free email address, or lists a phone that is not on its own website. Flagged references are not called, which also saves the time of the calls.
+**Every reference gets an authenticity score.** A fake trade reference is usually a phone number the applicant controls: their own line, a friend's cell, or a Google Voice number made for the occasion. So Vouch checks who each reference's number really belongs to:
+
+- **IPQualityScore**'s fraud model scores the number 0 to 100 and reports VoIP, recent abuse, and whether the line is active.
+- **Twilio Lookup** returns the carrier's caller ID name and the line type (landline, mobile, business VoIP, or a virtual number anyone can create online).
+- **Google Places** shows which business, if any, publicly lists the number.
+- **Vouch's own history** catches a number that showed up for a different company on an earlier application, and credits one that answered a reference call before.
+
+These join the record checks (state registration and officers, domain age, the company's website, shared phone or address with the applicant) in a logistic scorecard, the model family behind credit scores: each finding adds or subtracts log-odds and the total maps to a score from 1 to 99. The review screen shows every finding with its source and weight. A critical finding, like the number being listed to the applicant, flags the reference outright. Otherwise a score under 45 does. Flagged references are not called. The weights live in `credit_policy.yaml` next to the rest of the policy, set by hand for now; once there are enough decided applications they can be refit by logistic regression on the stored findings. A small company's reference number is often the owner's cell, so caller ID naming a person on the state record counts in the reference's favor, not against it.
 
 **One conversation engine, three phone lines.** The voice agent speaks the Twilio ConversationRelay WebSocket protocol: Twilio does speech recognition and synthesis, Vouch receives the reference's words as `prompt` messages and streams its reply back as `text` tokens. The in-app browser phone and the simulated reference speak the same protocol, so the agent code is identical for a real call, a teammate answering in a browser tab, or an unattended demo.
 
@@ -59,7 +66,7 @@ flowchart LR
 
 **Every claim is traceable.** Memo bullets link to the call transcript, the bank's email, or the registry record they came from.
 
-**Honest about the limits of each integration.** QuickBooks Online's API cannot read or write a customer's credit limit, so Vouch sets the payment terms and records the approved limit and memo link in the customer's notes. The demo companies are fictional, so their registry, domain, and website records come from a labeled sandbox file; real companies go to OpenCorporates and live RDAP lookups.
+**Honest about the limits of each integration.** QuickBooks Online's API cannot read or write a customer's credit limit, so Vouch sets the payment terms and records the approved limit and memo link in the customer's notes. The demo companies are fictional, so their registry, domain, website, and phone records come from a labeled sandbox file, and the review screen marks those findings "(sandbox)"; real companies go to OpenCorporates, live RDAP lookups, and the phone services above when their keys are set.
 
 ## Run it
 
@@ -101,7 +108,7 @@ Create an app at developer.intuit.com, add `http://localhost:8000/api/integratio
 make test
 ```
 
-The backend suite (52 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
+The backend suite (67 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
 
 `make smoke` is the live check: with your API key it has Claude read both sample scans and compares every field with the answer key, then runs one application end to end.
 

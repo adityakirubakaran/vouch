@@ -48,6 +48,7 @@ async def config(request: Request) -> dict:
         },
         "email": {"mode": st.email_mode, "simulate_bank_reply_seconds": st.simulate_bank_reply_seconds},
         "registry": {"mode": st.registry_mode, "opencorporates": bool(st.opencorporates_api_token), "live_domain_checks": st.live_domain_checks},
+        "phone_checks": {"ipqs": bool(st.ipqs_api_key), "twilio": st.twilio_lookup_configured, "google": bool(st.google_maps_api_key)},
         "accounting": s.accounting.status(),
     }
 

@@ -9,6 +9,7 @@ interface Policy {
   seller?: string;
   terms_offered?: string;
   verification?: { reference_min_age_days?: number; domain_min_age_days?: number; flag_on_warnings?: number };
+  reference_score?: { flag_below?: number; genuine_at?: number; high_fraud_score?: number };
   applicant?: { min_years_in_business?: number; require_signed_authorization?: boolean };
   limits?: {
     min_completed_references?: number;
@@ -142,6 +143,26 @@ export default function Settings() {
           </Integration>
 
           <Integration
+            title="Phone checks"
+            ok={config.phone_checks.ipqs || config.phone_checks.twilio || config.phone_checks.google}
+            state={
+              [config.phone_checks.ipqs && "IPQualityScore", config.phone_checks.twilio && "Twilio Lookup", config.phone_checks.google && "Google Places"]
+                .filter(Boolean)
+                .join(", ") || "Sandbox"
+            }
+          >
+            <p>
+              Each trade reference gets an authenticity score from 1 to 99. Part of it comes from who the reference's phone number
+              really belongs to: IPQualityScore's fraud model, carrier caller ID and line type from Twilio Lookup, and which business
+              Google lists the number for. The sample applications use built-in data for these.
+            </p>
+            <p className="muted">
+              Add <Env>IPQS_API_KEY</Env> (1,000 free lookups), <Env>GOOGLE_MAPS_API_KEY</Env> with Places API (New) enabled, or Twilio
+              credentials to check real numbers. Weights are in the credit policy below.
+            </p>
+          </Integration>
+
+          <Integration
             title="Accounting"
             ok={config.accounting.mode === "quickbooks" && config.accounting.connected}
             state={
@@ -205,13 +226,17 @@ export default function Settings() {
             <div className="card">
               <h3>Flagging a reference</h3>
               <ol className="policy-list">
-                <li>Its phone number is the applicant's own, or another reference's.</li>
+                <li>Its phone number is the applicant's own or another reference's, or caller ID or Google lists it to the applicant.</li>
                 <li>It is listed at the applicant's address, or shares an officer with the applicant.</li>
                 <li>It was registered less than {policy.verification?.reference_min_age_days} days ago, or is not active.</li>
                 <li>
-                  It has {policy.verification?.flag_on_warnings} or more soft warnings: a website domain under{" "}
-                  {policy.verification?.domain_min_age_days} days old, a free email address, a phone number missing from its website,
-                  or no registration found.
+                  IPQualityScore rates its number {policy.reference_score?.high_fraud_score} or higher for fraud, or Vouch saw the number
+                  for a different company before.
+                </li>
+                <li>
+                  Otherwise, its authenticity score is under {policy.reference_score?.flag_below}. Softer findings like a new website
+                  domain, a free email address, or a virtual phone number lower the score; caller ID, a business listing, or a long
+                  registration raise it. Scores of {policy.reference_score?.genuine_at} and up read as likely genuine.
                 </li>
                 <li>Flagged references are never called and are left out of the limit.</li>
               </ol>

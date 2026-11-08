@@ -105,6 +105,53 @@ export interface CheckRow {
   ok: boolean | null; // null = not checked
 }
 
+export interface PhoneIntel {
+  number: string | null;
+  checked: boolean;
+  sources: ("sandbox" | "ipqs" | "twilio" | "google")[];
+  valid: boolean | null;
+  active: boolean | null;
+  line_type: string | null; // landline | mobile | fixedVoip | nonFixedVoip | voip | tollFree | prepaid | unknown
+  carrier: string | null;
+  caller_name: string | null;
+  caller_name_source: string | null;
+  caller_type: "BUSINESS" | "CONSUMER" | null;
+  fraud_score: number | null; // IPQualityScore, 0-100
+  recent_abuse: boolean | null;
+  listings: { name: string; address: string | null; status: string | null; source: string }[];
+  errors: string[];
+}
+
+export interface ScoreFactor {
+  code: string;
+  label: string;
+  weight: number; // log-odds; negative counts against the reference
+  impact: "strong" | "moderate" | "slight";
+  source: string;
+}
+
+export interface ReferenceScore {
+  score: number; // 1-99
+  band: "likely_genuine" | "unconfirmed" | "likely_fake";
+  flagged: boolean;
+  hard_stop: boolean;
+  log_odds: number;
+  factors: ScoreFactor[]; // strongest first
+  sources: string[];
+  phone_sources: string[];
+  model: string;
+}
+
+export interface PhoneSighting {
+  role: "applicant" | "reference";
+  company: string;
+  application_id: string;
+  applicant: string | null;
+  flagged: boolean;
+  status: string;
+  date: string | null;
+}
+
 export interface PartyChecks {
   registry: {
     found: boolean;
@@ -123,6 +170,9 @@ export interface PartyChecks {
   website: { url: string | null; checked: boolean; phones: string[]; source: string } | null;
   signals: Signal[];
   rows?: CheckRow[]; // references only
+  phone?: PhoneIntel | null; // references only
+  score?: ReferenceScore; // references only
+  history?: PhoneSighting[]; // references only: where Vouch saw this number before
 }
 
 export interface ReferenceFindings {
@@ -214,7 +264,7 @@ export interface ReferenceOut {
 
 export interface EvidenceOut {
   code: string; // e.g. "call-ref-1", "bank", "reg-applicant", "fraud-ref-3", "app"
-  kind: "call" | "bank" | "registry" | "domain" | "fraud" | "application";
+  kind: "call" | "bank" | "registry" | "domain" | "fraud" | "phone" | "application";
   label: string; // short chip label: "Call 1", "Bank email", "State records", "Fraud check"
   detail: string;
   source_id: string | null; // call id, email id, or reference id
@@ -360,5 +410,6 @@ export interface AppConfig {
   };
   email: { mode: "outbox" | "smtp"; simulate_bank_reply_seconds: number };
   registry: { mode: "sandbox" | "opencorporates"; opencorporates: boolean; live_domain_checks: boolean };
+  phone_checks: { ipqs: boolean; twilio: boolean; google: boolean };
   accounting: { mode: "ledger" | "quickbooks"; connected: boolean; realm_id?: string | null; environment?: string };
 }

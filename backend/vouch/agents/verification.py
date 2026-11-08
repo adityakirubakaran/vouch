@@ -13,6 +13,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Optional
 
+from ..providers.phone import PhoneProvider
 from ..providers.records import DomainProvider, RegistryProvider, WebsiteProvider
 from ..schemas import CreditApplication
 from ..util import FREE_EMAIL_DOMAINS, address_key, company_key, domain_of, normalize_phone
@@ -74,17 +75,30 @@ async def check_party(
     registry: RegistryProvider,
     domains: DomainProvider,
     websites: WebsiteProvider,
+    phones: Optional[PhoneProvider] = None,
 ) -> dict:
+    """Public records for one party. With a phone provider (trade references), also
+    look up who the listed phone number belongs to."""
     site_domain = domain_of(party.website) or domain_of(party.email)
     if site_domain in FREE_EMAIL_DOMAINS:
         site_domain = domain_of(party.website)
-    reg, web = await asyncio.gather(
+
+    async def no_phone():
+        return None
+
+    reg, web, phone = await asyncio.gather(
         registry.lookup(party.company, party.state),
         websites.phones_for(party.company, party.website or (f"https://{site_domain}" if site_domain else None)),
+        phones.lookup(party.phone) if phones is not None else no_phone(),
     )
     # A reference that only gave a free email may still have a website we found by name.
     dom = await domains.lookup(site_domain or domain_of(web.url))
-    return {"registry": reg.to_dict(), "domain": dom.to_dict() if dom else None, "website": web.to_dict()}
+    return {
+        "registry": reg.to_dict(),
+        "domain": dom.to_dict() if dom else None,
+        "website": web.to_dict(),
+        "phone": phone.to_dict() if phone is not None else None,
+    }
 
 
 def reference_signals(
@@ -113,7 +127,10 @@ def reference_signals(
 
     reg = checks["registry"]
     if not reg.get("found"):
-        out.append(Signal("REF_NOT_REGISTERED", "warn", f"No business registration found ({reg.get('source')})."))
+        # The sandbox registry only knows the demo companies, so a miss there means
+        # "not searched", not "not registered".
+        if reg.get("source") != "sandbox":
+            out.append(Signal("REF_NOT_REGISTERED", "warn", f"No business registration found ({reg.get('source')})."))
     else:
         status = (reg.get("status") or "").lower()
         if status and status not in ("active", "good standing", "registered"):
@@ -146,22 +163,30 @@ def is_flagged(signals: list[Signal], policy: dict) -> bool:
     return sum(1 for s in signals if s.severity == "warn") >= policy["verification"]["flag_on_warnings"]
 
 
-def display_rows(ref: PartyInput, checks: dict, signals: list[Signal]) -> list[dict]:
+def display_rows(ref: PartyInput, checks: dict, signals: list[Signal], factors: Optional[list[dict]] = None) -> list[dict]:
     """The three rows the review screen shows on each reference card."""
     rules = {s.rule for s in signals}
+    found = {f["code"] for f in factors or []}
     reg = checks["registry"]
     reg_ok = reg.get("found") and not ({"REF_NEWLY_REGISTERED", "REF_INACTIVE"} & rules)
 
-    if "REF_PHONE_IS_APPLICANT" in rules:
-        phone_value, phone_ok = "Applicant's own line", False
-    elif "REF_PHONE_SHARED" in rules:
-        phone_value, phone_ok = "Shared with another reference", False
-    elif "REF_PHONE_NOT_ON_WEBSITE" in rules:
-        phone_value, phone_ok = "Not on its website", False
-    elif (checks.get("website") or {}).get("checked") and (checks["website"].get("phones")):
+    phone_rows = [
+        ("REF_PHONE_IS_APPLICANT", "Applicant's own line", False),
+        ("PHONE_LISTED_TO_APPLICANT", "Listed to the applicant", False),
+        ("REF_PHONE_SHARED", "Shared with another reference", False),
+        ("PHONE_SEEN_OTHER_COMPANY", "Seen for another company", False),
+        ("PHONE_LISTED_TO_OTHER", "Listed to another business", False),
+        ("PHONE_VIRTUAL", "Virtual number", False),
+        ("PHONE_HIGH_FRAUD_SCORE", "High fraud risk", False),
+        ("REF_PHONE_NOT_ON_WEBSITE", "Not on its website", False),
+        ("CALLER_ID_MATCHES", "Belongs to the company", True),
+        ("LISTED_TO_COMPANY", "Belongs to the company", True),
+        ("CALLER_ID_IS_OFFICER", "An officer's line", True),
+        ("PHONE_ON_WEBSITE", "Matches its website", True),
+    ]
+    phone_value, phone_ok = next(((v, ok) for code, v, ok in phone_rows if code in rules or code in found), ("Not checked", None))
+    if phone_ok is None and (checks.get("website") or {}).get("checked") and checks["website"].get("phones"):
         phone_value, phone_ok = "Matches its website", True
-    else:
-        phone_value, phone_ok = "Not checked", None
 
     dom = checks.get("domain") or {}
     if dom.get("found"):
@@ -170,8 +195,12 @@ def display_rows(ref: PartyInput, checks: dict, signals: list[Signal]) -> list[d
     else:
         site_value, site_ok = "Unknown", None
 
+    if not reg.get("found") and reg.get("source") == "sandbox":
+        reg_row = {"label": "Registered", "value": "Not checked", "ok": None}
+    else:
+        reg_row = {"label": "Registered", "value": registered_label(reg), "ok": bool(reg_ok)}
     return [
-        {"label": "Registered", "value": registered_label(reg), "ok": bool(reg_ok)},
+        reg_row,
         {"label": "Phone number", "value": phone_value, "ok": phone_ok},
         {"label": "Website age", "value": site_value, "ok": site_ok},
     ]

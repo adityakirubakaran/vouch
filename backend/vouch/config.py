@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     opencorporates_api_token: Optional[str] = None
     live_domain_checks: bool = True  # RDAP lookups for real domains
 
+    # Phone checks on trade references. Each source is used when its key is set;
+    # the demo numbers always use built-in sandbox data.
+    ipqs_api_key: Optional[str] = None  # IPQualityScore phone reputation (ML fraud score)
+    google_maps_api_key: Optional[str] = None  # Google Places: which business lists this number
+    twilio_lookup: bool = True  # Twilio Lookup caller name + line type, when Twilio keys are set
+
     # Accounting sync: a local ledger file, or a QuickBooks Online sandbox company.
     accounting_mode: Literal["ledger", "quickbooks"] = "ledger"
     quickbooks_client_id: Optional[str] = None
@@ -100,6 +106,11 @@ class Settings(BaseSettings):
     @property
     def twilio_configured(self) -> bool:
         return bool(self.twilio_account_sid and self.twilio_auth_token and self.twilio_from_number)
+
+    @property
+    def twilio_lookup_configured(self) -> bool:
+        # Lookup only needs account credentials, not a phone number.
+        return bool(self.twilio_lookup and self.twilio_account_sid and self.twilio_auth_token)
 
 
 @lru_cache

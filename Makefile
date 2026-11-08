@@ -1,4 +1,4 @@
-.PHONY: setup dev start build test smoke samples tunnel reset
+.PHONY: setup dev start build test smoke phone samples tunnel reset
 
 setup:            ## install backend and frontend dependencies, create .env
 	bash scripts/setup.sh
@@ -18,6 +18,9 @@ test:             ## backend tests (offline, no API key needed) and a frontend t
 
 smoke:            ## live check with your ANTHROPIC_API_KEY: reads the samples, runs one application
 	cd backend && .venv/bin/python scripts/smoke_live.py
+
+phone:            ## look up a real number with your phone keys: make phone NUMBER="+14155551234" COMPANY="Name"
+	cd backend && .venv/bin/python scripts/check_phone.py "$(NUMBER)" "$(COMPANY)"
 
 samples:          ## regenerate the scanned sample applications
 	cd backend && .venv/bin/python ../samples/generate_samples.py

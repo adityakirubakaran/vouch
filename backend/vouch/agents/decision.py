@@ -30,6 +30,9 @@ class RefInput:
     findings: Optional[ReferenceFindings]
     signals: list[dict]
     evidence_ids: list[str] = field(default_factory=list)
+    score: Optional[int] = None  # reference authenticity, 1-99
+    band: Optional[str] = None  # likely_genuine | unconfirmed | likely_fake
+    phone_evidence: Optional[str] = None
 
 
 @dataclass
@@ -86,7 +89,12 @@ def evaluate(
         facts.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", " ".join(bits) + "."))
     for r in flagged:
         why = " ".join(s["message"] for s in r.signals if s["severity"] in ("critical", "warn")) or "It failed verification."
-        risks.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", f"{r.company} was excluded and not called. {why}"))
+        scored = f" (authenticity {r.score}/100)" if r.score is not None else ""
+        risks.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", f"{r.company} was excluded and not called{scored}. {why}"))
+    for r in refs:
+        if not r.flagged and r.band == "unconfirmed":
+            risks.append(Fact(r.phone_evidence or (r.evidence_ids[0] if r.evidence_ids else "policy"),
+                              f"{r.company}'s identity could not be fully confirmed (authenticity {r.score}/100), so its answers carry less weight."))
     for r in unreachable:
         risks.append(Fact(r.evidence_ids[0] if r.evidence_ids else "policy", f"{r.company} did not give a phone reference ({r.outcome or 'not reached'})."))
 

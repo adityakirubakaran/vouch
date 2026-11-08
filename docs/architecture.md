@@ -15,7 +15,7 @@ Everything that matters is in the database, never only in memory:
 | `steps` | the workflow graph: status, dependencies, handler state, scheduled retry, wait timeout |
 | `calls` | every call attempt: channel, status, transcript, live notes, final result |
 | `emails` | bank requests and replies, requests for more information |
-| `evidence` | citable facts (`call-ref-1`, `bank`, `reg-applicant`, `fraud-ref-3`...) that memo sentences point to |
+| `evidence` | citable facts (`call-ref-1`, `bank`, `reg-applicant`, `phone-ref-1`, `fraud-ref-3`...) that memo sentences point to |
 | `events` | the activity log shown in the app |
 
 ## The engine (`engine.py`)
@@ -42,7 +42,7 @@ extract ─┬─► verify ─► call(ref) × verified refs ─┐
 ```
 
 - **extract** sends the PDF (or image) to Claude as a `document` block with a forced `record_credit_application` tool whose input schema is the `CreditApplication` Pydantic model. The output is validated; on a validation error Claude gets the error back once to correct it.
-- **verify** looks up the applicant and each reference (registry, domain registration date, phone numbers on the website) and runs the fraud rules. It writes a display row set per reference and evidence rows, then creates one call step per unflagged reference.
+- **verify** looks up the applicant and each reference (registry, domain registration date, phone numbers on the website), looks up who each reference's phone number belongs to (`providers/phone.py`: IPQualityScore, Twilio Lookup, Google Places, in parallel), and checks where Vouch has seen the number before. It runs the fraud rules and scores each reference (`agents/scoring.py`, a logistic scorecard with weights in the credit policy), writes display rows, the score with its findings, and evidence rows, then creates one call step per unflagged reference. A critical finding or a score under the policy's `flag_below` flags a reference.
 - **call** places an attempt and waits. When the call ends it decides: completed (save findings), declined or wrong number (done), or no answer / voicemail / callback requested (retry until `CALL_MAX_ATTEMPTS`).
   - A call that ends before the agent hears a high credit figure (the line dropped, the reference hung up) counts as failed and is retried, not recorded as a finished reference.
   - If Claude errors mid-reply, the turn is retried once. If that fails too, the agent apologizes, hangs up, and the reference is called back later.

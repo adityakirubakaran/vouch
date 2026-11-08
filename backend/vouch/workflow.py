@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from .agents import bank as bank_agent
 from .agents import decision as decision_agent
+from .agents import scoring
 from .agents import verification as ver
 from .agents.extraction import extract_application, media_type_for
 from .db import Application, Call, Email, Evidence, Reference, Step, utcnow
@@ -179,12 +180,15 @@ class Workflow:
                            (d.get("address") or {}).get("postal_code"), (d.get("address") or {}).get("state"))
             for rid, company, d in ref_rows
         ]
-        checks = await asyncio.gather(*[
-            ver.check_party(p, self.s.registry, self.s.domains, self.s.websites) for p in [applicant_party, *ref_parties]
-        ])
+        checks = await asyncio.gather(
+            ver.check_party(applicant_party, self.s.registry, self.s.domains, self.s.websites),
+            *[ver.check_party(p, self.s.registry, self.s.domains, self.s.websites, self.s.phones) for p in ref_parties],
+        )
         applicant_checks, ref_checks = checks[0], checks[1:]
         app_signals = ver.applicant_signals(application, applicant_checks, policy)
         people = ver.applicant_people(application, applicant_checks)
+        applicant_names = [n for n in (a.legal_name, a.dba, applicant_checks["registry"].get("legal_name")) if n]
+        sightings = {p.key: self._phone_history(ctx.application_id, p.phone) for p in ref_parties}
 
         flagged_names = []
         with self.s.db.session() as s:
@@ -201,13 +205,26 @@ class Workflow:
             for party, chk in zip(ref_parties, ref_checks):
                 others = [p for p in ref_parties if p.key != party.key]
                 sigs = ver.reference_signals(party, chk, applicant_party, applicant_checks, people, others, policy)
-                flagged = ver.is_flagged(sigs, policy)
+                sigs += scoring.phone_signals(party, chk.get("phone"), applicant_names, policy)
+                sigs += scoring.history_signals(party, sightings[party.key])
+                officers = (chk.get("registry") or {}).get("officers", [])
+                score = scoring.score_reference(party, chk, sigs, officers, sightings[party.key], policy)
+                flagged = score["flagged"]
                 ref = s.get(Reference, party.key)
                 assert ref is not None
-                ref.checks = {**chk, "signals": [x.to_dict() for x in sigs], "rows": ver.display_rows(party, chk, sigs)}
+                ref.checks = {
+                    **chk,
+                    "signals": [x.to_dict() for x in sigs],
+                    "rows": ver.display_rows(party, chk, sigs, score["factors"]),
+                    "score": score,
+                    "history": sightings[party.key],
+                }
                 ref.flagged = flagged
                 ref.status = "flagged" if flagged else "verified"
                 n = ref.position + 1
+                phone_note = scoring.phone_summary(party, chk.get("phone"))
+                if phone_note:
+                    self._evidence(s, app.id, f"phone-ref-{n}", "phone", "Phone check", f"{ref.company}: {phone_note}", source_id=ref.id)
                 r = chk["registry"]
                 self._evidence(
                     s, app.id, f"reg-ref-{n}", "registry", f"{ref.company} records",
@@ -219,13 +236,40 @@ class Workflow:
                     flagged_names.append(ref.company)
                     self._evidence(
                         s, app.id, f"fraud-ref-{n}", "fraud", "Fraud check",
-                        f"{ref.company}: " + " ".join(x.message for x in sigs if x.severity in ("critical", "warn")),
+                        f"{ref.company} scored {score['score']}/100 for authenticity. "
+                        + " ".join(x.message for x in sigs if x.severity in ("critical", "warn")),
                         source_id=ref.id,
                     )
         msg = (f"Flagged {', '.join(flagged_names)}" if flagged_names else "All references check out") + f"; {len(ref_parties) - len(flagged_names)} to call"
         self.s.bus.publish("verification.done", msg, application_id=ctx.application_id,
                            data={"flagged": flagged_names, "applicant_signals": [x.to_dict() for x in app_signals]})
         return Done({"flagged": flagged_names})
+
+    def _phone_history(self, app_id: str, phone: Optional[str]) -> list[dict]:
+        """Where Vouch has seen this phone number before, on other applications:
+        as an applicant's own line, or as some company's reference number."""
+        number = normalize_phone(phone)
+        if not number:
+            return []
+        out: list[dict] = []
+        with self.s.db.session() as s:
+            refs = s.scalars(select(Reference).where(Reference.application_id != app_id, Reference.kind == "trade", Reference.phone == number)).all()
+            for r in refs:
+                other = s.get(Application, r.application_id)
+                out.append({
+                    "role": "reference", "company": r.company, "application_id": r.application_id,
+                    "applicant": other.applicant_name if other else None, "flagged": bool(r.flagged), "status": r.status,
+                    "date": other.created_at.date().isoformat() if other and other.created_at else None,
+                })
+            for other in s.scalars(select(Application).where(Application.id != app_id)).all():
+                own = normalize_phone(((other.extracted or {}).get("applicant") or {}).get("phone"))
+                if own == number:
+                    out.append({
+                        "role": "applicant", "company": other.applicant_name or "another applicant", "application_id": other.id,
+                        "applicant": other.applicant_name, "flagged": False, "status": other.status,
+                        "date": other.created_at.date().isoformat() if other.created_at else None,
+                    })
+        return out
 
     async def call(self, ctx: StepContext):
         st = self.s.settings
@@ -409,11 +453,14 @@ class Workflow:
                     if r.findings:
                         bank_findings = BankFindings.model_validate(r.findings)
                     continue
-                ids = [c for c in (f"call-ref-{n}", f"fraud-ref-{n}", f"reg-ref-{n}") if c in evidence]
+                ids = [c for c in (f"call-ref-{n}", f"fraud-ref-{n}", f"phone-ref-{n}", f"reg-ref-{n}") if c in evidence]
+                score = (r.checks or {}).get("score") or {}
                 ref_inputs.append(decision_agent.RefInput(
                     id=r.id, company=r.company, flagged=r.flagged, outcome=r.outcome if not r.flagged else "excluded",
                     findings=ReferenceFindings.model_validate(r.findings) if r.findings else None,
                     signals=(r.checks or {}).get("signals", []), evidence_ids=ids,
+                    score=score.get("score"), band=score.get("band"),
+                    phone_evidence=f"phone-ref-{n}" if f"phone-ref-{n}" in evidence else None,
                 ))
         result = decision_agent.evaluate(
             policy, application, app_signals, ref_inputs, bank_findings,

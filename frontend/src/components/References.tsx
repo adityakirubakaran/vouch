@@ -1,7 +1,7 @@
-import { ArrowUpRight, Check, Loader2, PhoneCall } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Loader2, Minus, PhoneCall, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { AppConfig, ApplicationDetail, CallChannel, CallOut, ReferenceFindings, ReferenceOut } from "../api/types";
+import type { AppConfig, ApplicationDetail, CallChannel, CallOut, ReferenceFindings, ReferenceOut, ReferenceScore } from "../api/types";
 import { CHANNEL_LABEL, OUTCOME_LABEL, REF_STATUS_LABEL, countdown, duration, money } from "../lib/format";
 import { type LiveCallState, mergedTranscript, useNow } from "../lib/hooks";
 
@@ -55,8 +55,69 @@ export function ChannelPicker({
 
 // ---------------------------------------------------------- verification
 
+const BAND_LABEL: Record<ReferenceScore["band"], string> = {
+  likely_genuine: "Likely genuine",
+  unconfirmed: "Unconfirmed",
+  likely_fake: "Likely fake",
+};
+
+function ScoreBlock({ score }: { score: ReferenceScore }) {
+  return (
+    <div className={`vscore band-${score.band}`}>
+      <div className="vscore-top">
+        <span className="vscore-num num">{score.score}</span>
+        <span className="vscore-meta">
+          <span className="vscore-band">{BAND_LABEL[score.band]}</span>
+          <span className="vscore-label">Authenticity score</span>
+        </span>
+      </div>
+      <div className="vscore-meter" aria-hidden>
+        <span style={{ width: `${score.score}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function Factors({ score, startOpen }: { score: ReferenceScore; startOpen: boolean }) {
+  const [open, setOpen] = useState(startOpen);
+  const against = score.factors.filter((f) => f.weight < 0).length;
+  const support = score.factors.length - against;
+  if (score.factors.length === 0) return <p className="factors-empty">No outside evidence found for or against this reference.</p>;
+  return (
+    <div className="factors">
+      <button className="factors-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span>
+          {against > 0 ? `${against} against` : ""}
+          {against > 0 && support > 0 ? ", " : ""}
+          {support > 0 ? `${support} in favor` : ""}
+        </span>
+        <ChevronDown size={15} className={open ? "flip" : ""} />
+      </button>
+      {open ? (
+        <ul className="factor-list">
+          {score.factors.map((f) => (
+            <li key={f.code} className={`factor ${f.weight < 0 ? "against" : "for"}`}>
+              <span className="factor-mark">{f.weight < 0 ? <Minus size={13} strokeWidth={2.6} /> : <Plus size={13} strokeWidth={2.6} />}</span>
+              <span className="factor-body">
+                <span className="factor-text">{f.label}</span>
+                <span className="factor-source">{f.source}</span>
+              </span>
+              <span className={`factor-impact ${f.impact}`} title={`${f.impact} effect`}>
+                <i />
+                <i />
+                <i />
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function VerificationCard({ r }: { r: ReferenceOut }) {
   const rows = r.checks?.rows ?? [];
+  const score = r.checks?.score;
   const signals = (r.checks?.signals ?? []).filter((s) => s.severity !== "info");
   return (
     <article id={`ref-${r.id}`} className={`vcard${r.flagged ? " flagged" : ""}`}>
@@ -75,6 +136,7 @@ export function VerificationCard({ r }: { r: ReferenceOut }) {
       <p className="vcard-contact">
         {[r.contact_name, r.phone_display].filter(Boolean).join(", ")}
       </p>
+      {score ? <ScoreBlock score={score} /> : null}
       <div className="vrows">
         {rows.map((row) => (
           <div key={row.label} className="vrow">
@@ -83,7 +145,9 @@ export function VerificationCard({ r }: { r: ReferenceOut }) {
           </div>
         ))}
       </div>
-      {r.flagged && signals.length > 0 ? (
+      {score ? (
+        <Factors score={score} startOpen={r.flagged} />
+      ) : r.flagged && signals.length > 0 ? (
         <ul className="signals">
           {signals.map((s) => (
             <li key={s.rule}>{s.message}</li>

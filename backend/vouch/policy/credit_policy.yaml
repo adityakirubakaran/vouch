@@ -9,8 +9,58 @@ verification:
   reference_min_age_days: 180
   # Same idea for the reference's website domain.
   domain_min_age_days: 180
-  # Two soft warnings on one reference also flag it.
+  # Two soft warnings on one reference also flag it (legacy rule; the
+  # authenticity score below now decides, and agrees with this when a
+  # reference has no other evidence for it).
   flag_on_warnings: 2
+
+# Reference authenticity score, 1-99: a logistic scorecard. Each finding adds or
+# subtracts log-odds from a neutral start, and the total maps to the score:
+#   score = 100 / (1 + e^-(base_log_odds + sum of weights))
+# Any critical finding (e.g. the reference's phone is the applicant's own line)
+# flags the reference no matter the score. Weights are set by hand from how
+# strongly each finding points to a set-up reference; with enough decided
+# applications they can be refit by logistic regression on the stored findings.
+reference_score:
+  base_log_odds: 0.8      # no evidence either way: about 69
+  flag_below: 45          # below this the reference is excluded and not called
+  genuine_at: 75          # at or above: "Likely genuine"; in between: "Unconfirmed"
+  high_fraud_score: 85    # IPQualityScore fraud score treated as high risk (critical)
+  elevated_fraud_score: 75
+  low_fraud_score: 30     # at or below counts in the reference's favor
+  established_years: 3    # registration or domain at least this old counts in its favor
+  weights:
+    # Findings against the reference
+    REF_PHONE_IS_APPLICANT: -5.0      # its number is the applicant's own line
+    PHONE_LISTED_TO_APPLICANT: -3.5   # caller ID or a listing names the applicant
+    PHONE_SEEN_OTHER_COMPANY: -3.5    # Vouch saw this number for a different company
+    PHONE_FLAGGED_BEFORE: -3.5        # flagged as fake on an earlier application
+    REF_PHONE_SHARED: -3.0            # two references share a number
+    REF_SHARES_OFFICER: -2.5          # same officer as the applicant
+    REF_ADDRESS_IS_APPLICANT: -2.5    # same building as the applicant
+    REF_INACTIVE: -2.5
+    PHONE_HIGH_FRAUD_SCORE: -2.5
+    REF_NEWLY_REGISTERED: -2.0
+    PHONE_LISTED_TO_OTHER: -1.6       # number belongs to some other business
+    REF_NOT_REGISTERED: -1.2
+    PHONE_VIRTUAL: -1.0               # Google Voice style number
+    PHONE_INACTIVE: -1.2
+    PHONE_ELEVATED_FRAUD_SCORE: -1.2
+    REF_NEW_DOMAIN: -1.0
+    REF_PHONE_NOT_ON_WEBSITE: -0.9
+    PHONE_RECENT_ABUSE: -0.9
+    REF_FREE_EMAIL: -0.7
+    # Findings for the reference
+    VERIFIED_BEFORE: 1.0              # this number answered a reference call before
+    CALLER_ID_MATCHES: 0.9            # carrier caller ID names the company
+    LISTED_TO_COMPANY: 0.9            # a business listing shows the number for the company
+    CALLER_ID_IS_OFFICER: 0.7         # caller ID names an officer on the state record
+    REGISTERED_ESTABLISHED: 0.6
+    PHONE_ON_WEBSITE: 0.6
+    LOW_FRAUD_SCORE: 0.4
+    DOMAIN_ESTABLISHED: 0.3
+    EMAIL_ON_COMPANY_DOMAIN: 0.2
+    BUSINESS_LINE: 0.2
 
 applicant:
   min_years_in_business: 2
