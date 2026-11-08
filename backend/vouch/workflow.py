@@ -26,6 +26,7 @@ from .agents import scoring
 from .agents import verification as ver
 from .agents.extraction import extract_application, media_type_for
 from .db import Application, Call, Email, Evidence, Reference, Step, utcnow
+from . import followup
 from .engine import Done, Retry, Skip, StepContext, StepFailed, Wait
 from .fixtures_data import bank_reply_for
 from .policy import load_policy
@@ -279,6 +280,7 @@ class Workflow:
             ref = s.get(Reference, ctx.reference_id)
             assert ref is not None
             company = ref.company
+            ref_channel = (ref.details or {}).get("call_channel")
             app_row = s.get(Application, ctx.application_id)
             app_channel = app_row.call_channel if app_row is not None else None
             active_call = s.get(Call, active) if active else None
@@ -305,12 +307,15 @@ class Workflow:
             return Wait(f"On a call with {company}", timeout_seconds=st.call_ring_timeout_seconds + MAX_CALL_SECONDS)
 
         attempts = state.get("call_attempts", 0)
-        if attempts >= st.call_max_attempts:
+        # Callbacks the reference asked for are conversations, not misses, so they do
+        # not use up attempts (up to a sane cap).
+        misses = attempts - state.get("callbacks", 0)
+        if misses >= st.call_max_attempts or attempts >= st.call_max_attempts * 2:
             self._set_ref(ctx.reference_id, status="unreachable")
             return Done({"outcome": "unreachable"})
         # The application row is the source of truth for the channel; step state can
         # be stale if the reviewer switched channels while this handler was running.
-        channel = self.s.calls.resolve_channel(state.get("channel") or app_channel or state.get("default_channel"))
+        channel = self.s.calls.resolve_channel(state.get("channel") or ref_channel or app_channel or state.get("default_channel"))
         if self.s.calls.line_busy(channel):
             # One Phone page, or one demo phone: ring it for one reference at a time.
             return Retry(after_seconds=min(5.0, max(0.5, st.call_retry_seconds)), reason="Waiting for the phone line to be free")
@@ -332,6 +337,9 @@ class Workflow:
     def _after_call(self, ctx: StepContext, result: CallResult, call_id: str):
         st = self.s.settings
         attempts = ctx.state.get("call_attempts", 1)
+        if result.outcome == "callback_requested":
+            ctx.state["callbacks"] = ctx.state.get("callbacks", 0) + 1
+        misses = attempts - ctx.state.get("callbacks", 0)
         with self.s.db.session() as s:
             ref = s.get(Reference, ctx.reference_id)
             assert ref is not None
@@ -358,21 +366,27 @@ class Workflow:
                     ref.summary = f"{result.summary} Written requests go to {result.alternate_contact}."
                 self._evidence(s, ref.application_id, f"call-ref-{n}", "call", f"Call {n}", f"{company}: {ref.summary}", source_id=call_id)
                 return Done({"outcome": result.outcome})
-            # no answer, voicemail, failed, callback requested: try again if allowed
-            if attempts >= st.call_max_attempts:
+            # no answer, voicemail, failed, callback requested: follow up if allowed
+            if misses >= st.call_max_attempts or attempts >= st.call_max_attempts * 2:
                 ref.status = "unreachable"
                 self._evidence(s, ref.application_id, f"call-ref-{n}", "call", f"Call {n}", f"{company}: not reached after {attempts} attempts.", source_id=call_id)
                 return Done({"outcome": "unreachable"})
-            delay = st.call_retry_seconds
-            if result.outcome == "callback_requested":
-                ref.status = "callback_scheduled"
-                why = f"Calling back ({result.callback_at or 'as requested'})"
-                if st.honor_callback_times:
-                    delay = max(delay, 3600)
+            state_code = ((ref.details or {}).get("address") or {}).get("state")
+            nxt = followup.plan(
+                result.outcome, misses, result.callback_at, utcnow(), followup.reference_timezone(state_code, st.default_timezone),
+                retry_seconds=st.call_retry_seconds, honor_callback_times=st.honor_callback_times,
+                next_day_after=st.follow_up_next_day_after, hour=st.follow_up_hour,
+            )
+            ref.status = "callback_scheduled" if result.outcome == "callback_requested" else "retry_scheduled"
+            if nxt.when is not None:
+                ref.summary = f"{result.summary} {nxt.reason.split('. ', 1)[-1]}."
+                ctx.state["follow_up_at"] = nxt.when.isoformat()
             else:
-                ref.status = "retry_scheduled"
-                why = {"no_answer": "No answer", "voicemail": "Left a voicemail", "failed": "Call failed"}.get(result.outcome, result.outcome) + ", trying again"
-        return Retry(after_seconds=delay, reason=why)
+                ctx.state.pop("follow_up_at", None)
+        if nxt.when is not None:
+            self.s.bus.publish("call.follow_up", f"{company}: {nxt.reason}", application_id=ctx.application_id,
+                               data={"reference_id": ctx.reference_id, "at": nxt.when.isoformat()})
+        return Retry(after_seconds=nxt.after_seconds, reason=nxt.reason)
 
     async def bank(self, ctx: StepContext):
         with self.s.db.session() as s:
@@ -558,9 +572,15 @@ class Workflow:
             deps = []
             app = s.get(Application, step.application_id)
             channel = app.call_channel if app is not None else None
+            limit = self.s.settings.real_call_limit
+            real_line = self.s.calls.resolve_channel(channel) in ("twilio", "browser")
+            placed = 0
             for ref in refs:
                 if ref.flagged:
                     continue
+                placed += 1
+                if limit > 0 and real_line and placed > limit and not (ref.details or {}).get("call_channel"):
+                    ref.details = {**(ref.details or {}), "call_channel": "simulated"}  # REAL_CALL_LIMIT
                 call_state: dict = {"call_attempts": 0, "max_attempts": 5}
                 if channel:
                     call_state["default_channel"] = channel
@@ -664,6 +684,21 @@ class Workflow:
                 self.s.engine.wake()
                 return True
         return self.s.engine.run_now(step_id, {"channel": channel} if channel else None)
+
+    def set_reference_channel(self, reference_id: str, channel: Optional[str]) -> None:
+        """Where this one reference's calls go, overriding the application's line.
+        None goes back to the application's line."""
+        with self.s.db.session() as s:
+            ref = s.get(Reference, reference_id)
+            if ref is None:
+                raise ValueError("Unknown reference")
+            details = {k: v for k, v in (ref.details or {}).items() if k != "call_channel"}
+            if channel:
+                details["call_channel"] = channel
+            ref.details = details
+            app_id, company = ref.application_id, ref.company
+        self.s.bus.publish("reference.updated", f"{company} calls now go to the {channel or 'application'} line", application_id=app_id,
+                           data={"reference_id": reference_id, "call_channel": channel}, persist=False)
 
     def set_default_channel(self, application_id: str, channel: str) -> None:
         """Where this application's calls go. Applies to calls not yet placed,

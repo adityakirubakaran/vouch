@@ -257,3 +257,62 @@ def test_demo_phone_rings_for_one_reference_at_a_time(client_factory, fake_dial)
     c.post(f"/twilio/status?call_id={first['id']}", data=params, headers={"X-Twilio-Signature": expected_signature("secret", url, params)})
     wait_until(lambda: len(fake_dial.dialed) >= 2)
     assert len(twilio_calls(c, app_id)) == 1
+
+
+async def test_twilio_create_call_sends_a_form_the_async_client_accepts(tmp_path, monkeypatch):
+    """Runs the real request code against a fake Twilio. A list-of-tuples body is
+    sent by httpx as a sync stream, which AsyncClient refuses; this caught that."""
+    from urllib.parse import parse_qs
+
+    import httpx
+
+    from vouch.providers.twilio_client import TwilioClient
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["request"] = request
+        return httpx.Response(201, json={"sid": "CA42"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr("vouch.providers.twilio_client.httpx.AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    settings = make_settings(tmp_path, **TWILIO)
+    sid = await TwilioClient(settings).create_call("+14155550199", "<Response/>", "call_1", "https://vouch.test")
+    assert sid == "CA42"
+    req = seen["request"]
+    assert req.url.path == "/2010-04-01/Accounts/AC123/Calls.json"
+    assert req.headers["content-type"] == "application/x-www-form-urlencoded"
+    form = parse_qs(req.content.decode())
+    assert form["To"] == ["+14155550199"] and form["Timeout"] == ["30"]
+    assert form["StatusCallbackEvent"] == ["initiated", "ringing", "answered", "completed"]
+    assert form["StatusCallback"] == ["https://vouch.test/twilio/status?call_id=call_1"]
+
+
+def test_real_call_limit_keeps_later_references_simulated(client_factory, fake_dial):
+    """REAL_CALL_LIMIT=1: the first reference rings the real phone, the rest are simulated."""
+    c = client_factory(**TWILIO, demo_reference_phone="+14155550199", real_call_limit=1)
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    wait_until(lambda: twilio_calls(c, app_id))
+    detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())
+                        and next(r for r in d["references"] if r["company"].startswith("Coastal"))["status"] == "completed" and d)
+    refs = {r["company"]: r for r in detail["references"]}
+    assert refs["Harbor Paper Co."]["call_channel"] is None and refs["Harbor Paper Co."]["calls"][0]["channel"] == "twilio"
+    assert refs["Coastal Flour Mills Inc."]["call_channel"] == "simulated"
+    assert {x["channel"] for x in refs["Coastal Flour Mills Inc."]["calls"]} == {"simulated"}
+    assert fake_dial.dialed == [refs["Harbor Paper Co."]["calls"][0]["id"]]
+
+
+def test_reference_line_can_be_switched_and_called(client_factory, fake_dial):
+    """Switch one reference to the real phone after its simulated call, then Call now."""
+    c = client_factory(**{**TWILIO, "call_channel": "simulated"})
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    detail = wait_until(lambda: (d := c.get(f"/api/applications/{app_id}").json())["status"] == "ready_for_review" and d)
+    coastal = next(r for r in detail["references"] if r["company"].startswith("Coastal"))
+    assert c.post(f"/api/references/{coastal['id']}/call-channel", json={"channel": "fax"}).status_code == 400
+    assert c.post(f"/api/references/{coastal['id']}/call-channel", json={"channel": "twilio"}).json()["resolved"] == "twilio"
+    assert c.post(f"/api/references/{coastal['id']}/call-now", json={"channel": "twilio"}).json() == {"ok": True}
+    wait_until(lambda: twilio_calls(c, app_id))
+    after = next(r for r in c.get(f"/api/applications/{app_id}").json()["references"] if r["id"] == coastal["id"])
+    assert after["call_channel"] == "twilio" and after["calls"][-1]["channel"] == "twilio"
+    c.post(f"/api/references/{coastal['id']}/call-channel", json={"channel": None})
+    assert next(r for r in c.get(f"/api/applications/{app_id}").json()["references"] if r["id"] == coastal["id"])["call_channel"] is None

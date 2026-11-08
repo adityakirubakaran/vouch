@@ -265,6 +265,22 @@ async def call_now(request: Request, ref_id: str, body: CallNowBody) -> dict:
     return {"ok": True}
 
 
+class RefChannelBody(BaseModel):
+    channel: Optional[str] = None  # None: follow the application's line
+
+
+@router.post("/references/{ref_id}/call-channel")
+async def set_reference_channel(request: Request, ref_id: str, body: RefChannelBody) -> dict:
+    if body.channel and body.channel not in ("simulated", "browser", "twilio"):
+        raise HTTPException(400, "channel must be simulated, browser, or twilio")
+    s = svc(request)
+    try:
+        s.workflow.set_reference_channel(ref_id, body.channel)  # type: ignore[union-attr]
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "call_channel": body.channel, "resolved": s.calls.resolve_channel(body.channel) if body.channel else None}
+
+
 @router.get("/calls/ringing")
 async def ringing_calls(request: Request) -> list[dict]:
     s = svc(request)

@@ -38,6 +38,16 @@
       "attempts": [
         {
           "behavior": "answer",
+          "style": "Busy signing for a delivery. Politely asks you to call back tomorrow morning and ends the call.",
+          "facts": {},
+          "callback": "tomorrow morning",
+          "script": [
+            "Coastal Flour, this is Raj. I'm signing for a delivery right now. Could you call me back tomorrow morning?",
+            "Thanks, talk then."
+          ]
+        },
+        {
+          "behavior": "answer",
           "style": "Efficient and precise. Answers each question directly.",
           "facts": {
             "customer_since": "2019",
@@ -51,7 +61,7 @@
             "comments": "Occasionally a few days late around holidays, always pays."
           },
           "script": [
-            "Raj speaking. Yes, I can do that.",
+            "Raj here. Thanks for calling back. Sure, go ahead.",
             "They've been a customer since 2019, on Net 30 terms.",
             "High credit twenty thousand. Current balance is six thousand eight hundred.",
             "Nothing past due. Average is about 31 days, sometimes a few days late around the holidays.",

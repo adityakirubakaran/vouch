@@ -62,6 +62,8 @@ export const api = {
   setCallChannel: (id: string, channel: CallChannel) =>
     post<{ ok: boolean }>(`/api/applications/${id}/call-channel`, { channel }),
   simulateBankReply: (id: string) => post<{ email_id: string }>(`/api/applications/${id}/simulate-bank-reply`),
+  setReferenceChannel: (refId: string, channel: CallChannel | null) =>
+    post<{ ok: boolean }>(`/api/references/${refId}/call-channel`, { channel }),
   callNow: (refId: string, channel?: CallChannel) =>
     post<{ ok: boolean }>(`/api/references/${refId}/call-now`, channel ? { channel } : {}),
   ringing: () => request<RingingCall[]>("/api/calls/ringing"),

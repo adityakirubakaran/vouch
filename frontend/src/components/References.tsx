@@ -161,6 +161,8 @@ export function VerificationCard({ r }: { r: ReferenceOut }) {
 
 // ------------------------------------------------------------------ calls
 
+const LINE_LABEL: Record<CallChannel, string> = { twilio: "Real phone", simulated: "Simulated", browser: "Browser" };
+
 const FINDING_ROWS: { key: keyof ReferenceFindings; label: string; fmt: (v: unknown) => string }[] = [
   { key: "customer_since", label: "Customer since", fmt: (v) => String(v) },
   { key: "terms", label: "Terms", fmt: (v) => String(v) },
@@ -247,13 +249,24 @@ export function CallPanel({
   live,
   channel,
   highlightCall,
+  twilioReady,
 }: {
   r: ReferenceOut;
   live: Record<string, LiveCallState>;
   channel: CallChannel;
   highlightCall?: string | null;
+  twilioReady: boolean;
 }) {
   const now = useNow(1000);
+  // This reference's line: its own choice, else the application's. Kept locally so
+  // the switch responds instantly; the server stores it for future calls.
+  const [lineChoice, setLineChoice] = useState<CallChannel | null>(null);
+  useEffect(() => setLineChoice(null), [r.call_channel]);
+  const line: CallChannel = lineChoice ?? r.call_channel ?? channel;
+  function changeLine(c: CallChannel) {
+    setLineChoice(c);
+    void api.setReferenceChannel(r.id, c === channel ? null : c).catch(() => undefined);
+  }
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -272,7 +285,7 @@ export function CallPanel({
     setBusy(true);
     setError(null);
     try {
-      await api.callNow(r.id, channel);
+      await api.callNow(r.id, line);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -286,6 +299,22 @@ export function CallPanel({
         <div>
           <h3>{r.company}</h3>
           <p className="muted small">{[r.contact_name, r.phone_display].filter(Boolean).join(", ")}</p>
+          <div className="line-picker row gap-8">
+            <span className="muted small">Line</span>
+            <div className="segmented small" role="radiogroup" aria-label={`Line for ${r.company}`}>
+              {(["twilio", "simulated", "browser"] as CallChannel[]).map((c) => (
+                <button
+                  key={c}
+                  className={line === c ? "on" : ""}
+                  disabled={(c === "twilio" && !twilioReady) || Boolean(inProgress)}
+                  title={c === "twilio" && !twilioReady ? "Add Twilio credentials and PUBLIC_BASE_URL in .env" : undefined}
+                  onClick={() => changeLine(c)}
+                >
+                  {LINE_LABEL[c]}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <span className="spacer" />
         {calls.length > 0 ? (
@@ -306,7 +335,9 @@ export function CallPanel({
         <div className="retry-bar">
           <span>
             {retryIn !== null
-              ? `${(step?.wait_reason ?? "Waiting").replace(/, trying again$/, "")}. Calling again in ${countdown(retryIn)}.`
+              ? retryIn > 600
+                ? `${step?.wait_reason ?? "Follow-up scheduled"}.` // a callback later today or another day: show when
+                : `${(step?.wait_reason ?? "Waiting").replace(/, trying again$/, "")}. Calling again in ${countdown(retryIn)}.`
               : calls.length === 0
                 ? "Waiting to call."
                 : r.summary ?? REF_STATUS_LABEL[r.status]}
@@ -405,7 +436,14 @@ export default function ReferencesTab({
         ) : (
           <div className="stack gap-24">
             {called.map((r) => (
-              <CallPanel key={r.id} r={r} live={live} channel={channel} highlightCall={highlightCall} />
+              <CallPanel
+                key={r.id}
+                r={r}
+                live={live}
+                channel={channel}
+                highlightCall={highlightCall}
+                twilioReady={Boolean(config?.calls.twilio_configured && config?.calls.public_base_url)}
+              />
             ))}
           </div>
         )}

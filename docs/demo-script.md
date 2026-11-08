@@ -2,7 +2,7 @@
 
 Two people: one drives the review screen, one plays the reference on the phone. Before recording, run `make reset` and start Vouch.
 
-For a real phone call, use `CALL_CHANNEL=twilio` with `DEMO_REFERENCE_PHONE` set to the second person's phone. Otherwise open **Phone** in a second browser window and pick **Browser phone** on the review screen.
+For a real phone call, use `CALL_CHANNEL=twilio` with `DEMO_REFERENCE_PHONE` set to the second person's phone and `REAL_CALL_LIMIT=1`, so Harbor Paper rings the phone and Coastal Flour Mills runs simulated. Each reference's call panel also has a **Line** switch. Without Twilio, open **Phone** in a second browser window and pick **Browser phone** on the review screen.
 
 ## 1. The problem (0:00 to 0:30)
 
@@ -28,7 +28,7 @@ Open Harbor's evidence list.
 
 ## 4. The live call (1:45 to 3:00)
 
-Harbor Paper's first attempt goes unanswered; the card shows the retry countdown. Click **Call now** if you don't want to wait. The second person answers as Linda Park:
+Harbor Paper rings the phone. (On the simulated line, its first attempt goes unanswered and the card shows the retry countdown; click **Call now** if you don't want to wait.) The second person answers as Linda Park:
 
 - "This is Linda in accounts receivable. Sure, go ahead."
 - When asked for numbers: "Let me pull up the account, one second." Then: customer since 2022, Net 30.
@@ -37,6 +37,14 @@ Harbor Paper's first attempt goes unanswered; the card shows the retry countdown
 - Yes, would extend more.
 
 > It says up front that it's an AI on a recorded line. The fields on the right fill in while she talks.
+
+## 4b. The follow-up (3:00 to 3:20)
+
+Scroll to Coastal Flour Mills. Raj was busy and asked to be called back tomorrow morning. The panel reads "Calling back tomorrow at 10:00 AM PST."
+
+> References rarely pick up the first time. Vouch hangs up politely, books the callback for the time Raj asked for, in his time zone, and the memo waits for it. If nobody answers twice, it tries again the next business morning. For the demo, I'll pull tomorrow forward.
+
+Click **Call now**. Raj answers this time and gives his numbers.
 
 ## 5. The bank (3:00 to 3:20)
 

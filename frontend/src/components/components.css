@@ -1445,3 +1445,19 @@
     display: none;
   }
 }
+
+/* per-reference line switch on a call panel */
+.line-picker {
+  margin-top: 10px;
+}
+
+.segmented.small {
+  background: var(--card-strong);
+  padding: 2px;
+}
+
+.segmented.small button {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 12.5px;
+}

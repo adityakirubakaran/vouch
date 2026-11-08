@@ -17,6 +17,7 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         anthropic_api_key=None,
         call_channel="simulated",
         call_retry_seconds=0.2,
+        honor_callback_times=False,  # tests call back right away instead of "Thursday"
         call_ring_timeout_seconds=5,
         simulate_bank_reply_seconds=0.3,
         bank_reply_timeout_seconds=30,

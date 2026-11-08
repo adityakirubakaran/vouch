@@ -96,7 +96,7 @@ async def run_application(settings: Settings) -> None:
 
 
 async def main() -> None:
-    settings = Settings(start_engine=False, call_channel="simulated", call_retry_seconds=5,
+    settings = Settings(start_engine=False, call_channel="simulated", call_retry_seconds=5, honor_callback_times=False,
                         data_dir=Path(__file__).resolve().parents[2] / "data" / "smoke")
     if not settings.anthropic_api_key:
         print("Set ANTHROPIC_API_KEY in .env first.")

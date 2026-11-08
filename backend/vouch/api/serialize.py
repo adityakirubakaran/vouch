@@ -41,6 +41,7 @@ def reference_out(r: Reference, step: Optional[Step]) -> dict:
         "phone": r.phone,
         "phone_display": format_phone(r.phone),
         "email": r.email,
+        "call_channel": (r.details or {}).get("call_channel"),  # None: follows the application
         "status": r.status,
         "flagged": r.flagged,
         "checks": r.checks,

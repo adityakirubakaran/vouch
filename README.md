@@ -60,6 +60,8 @@ These join the record checks (state registration and officers, domain age, the c
 
 **One conversation engine, three phone lines.** The voice agent speaks the Twilio ConversationRelay WebSocket protocol: Twilio does speech recognition and synthesis, Vouch receives the reference's words as `prompt` messages and streams its reply back as `text` tokens. The in-app browser phone and the simulated reference speak the same protocol, so the agent code is identical for a real call, a teammate answering in a browser tab, or an unattended demo.
 
+**Follow-ups like an analyst would do them.** When a reference says "call me back tomorrow morning," the agent agrees, hangs up, and `followup.py` books the callback for 10 AM tomorrow in the reference's time zone (from the state on its address). It understands weekdays, "after 2," "this afternoon," and "in an hour"; anything vaguer goes to the next business morning. After two unanswered calls it also waits for the next business morning instead of redialing. The review screen shows when the next call is, and **Call now** pulls it forward.
+
 **Durable workflow, built for waiting.** Reference checks wait on people: a reference does not pick up, asks for a callback Thursday, or the bank takes a day to reply. `engine.py` stores every step in SQLite with its state, scheduled retry time, and wait timeout. If the server restarts mid-application, waiting steps keep waiting, retries keep their times, and calls that were cut off are retried. There is a test that kills the engine mid-flight and resumes in a new process.
 
 **The AI says it is an AI.** Every call opens with "Hi, this is Vouch, an AI assistant calling on behalf of Northline Supply's credit team, on a recorded line," and the agent never discloses the applicant's requested amount.
@@ -78,13 +80,13 @@ make setup        # backend virtualenv, frontend packages, .env
 make dev          # http://localhost:5173
 ```
 
-Click **New application**, then run the **Acme Bakery Supply** sample. In a minute or two Vouch reads the scan, flags Bayview Packaging (registered 23 days ago, on the applicant's own phone line and address, sharing the applicant's owner as an officer), calls Harbor Paper (no answer, then a retry that connects) and Coastal Flour Mills, gets the bank's reply, and recommends $25,000 on Net 30 against the $30,000 requested. Approve it and the customer is written to the ledger (or QuickBooks).
+Click **New application**, then run the **Acme Bakery Supply** sample. In a minute or two Vouch reads the scan, flags Bayview Packaging (registered 23 days ago, on the applicant's own phone line and address, sharing the applicant's owner as an officer), calls Harbor Paper (no answer, then a retry that connects) and Coastal Flour Mills (Raj asks for a callback tomorrow morning; click **Call now** on his panel to pull it forward), gets the bank's reply, and recommends $25,000 on Net 30 against the $30,000 requested. Approve it and the customer is written to the ledger (or QuickBooks).
 
 Without an API key, Vouch runs in offline mode: scripted responses that work only with the two bundled samples. This is also how the test suite runs.
 
 ### Reference calls
 
-Set `CALL_CHANNEL` in `.env`, or switch per application on the review screen.
+Set `CALL_CHANNEL` in `.env`, or switch per application on the review screen. Each reference's call panel also has its own **Line** switch, and `REAL_CALL_LIMIT=1` keeps every reference after the first on the simulated line, so a demo rings your phone once.
 
 - `simulated` (default): Claude plays each reference from a persona in `backend/vouch/fixtures/personas.json`, including one who asks for a callback and one who only gives written references.
 - `browser`: open **Phone** in a second window. When Vouch calls, answer and talk (Chrome speech recognition) or type.
@@ -109,7 +111,7 @@ Create an app at developer.intuit.com, add `http://localhost:8000/api/integratio
 make test
 ```
 
-The backend suite (68 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
+The backend suite (75 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
 
 `make smoke` is the live check: with your API key it has Claude read both sample scans and compares every field with the answer key, then runs one application end to end.
 

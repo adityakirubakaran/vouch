@@ -49,9 +49,18 @@ class Settings(BaseSettings):
 
     # Retry schedule for references that do not pick up.
     call_max_attempts: int = 3
+    # With a real line (twilio or browser), only the first N references in form order
+    # use it and the rest are simulated. 0 means every reference uses the real line.
+    real_call_limit: int = 0
     call_retry_seconds: float = 30  # demo-friendly; use hours in production
     call_ring_timeout_seconds: float = 45
-    honor_callback_times: bool = False  # demo: retry soon even if "call back Thursday"
+    # Follow-ups: call back when the reference asked ("tomorrow morning"), and after
+    # this many unanswered calls wait for the next business morning. Times are in the
+    # reference's own time zone (from its state), else default_timezone.
+    honor_callback_times: bool = True
+    follow_up_next_day_after: int = 2
+    follow_up_hour: int = 10
+    default_timezone: str = "America/Los_Angeles"
 
     # Email to the customer's bank: outbox (shown in the app) or smtp.
     email_mode: Literal["outbox", "smtp"] = "outbox"

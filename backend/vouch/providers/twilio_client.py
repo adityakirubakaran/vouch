@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-from typing import Optional
+from typing import Optional, Union
 from xml.sax.saxutils import quoteattr
 
 import httpx
@@ -20,23 +20,24 @@ class TwilioClient:
         self.auth = (settings.twilio_account_sid or "", settings.twilio_auth_token or "")
 
     async def create_call(self, to: str, twiml: str, call_id: str, public_base: str) -> str:
-        data: list[tuple[str, str]] = [
-            ("To", to),
-            ("From", self.settings.twilio_from_number or ""),
-            ("Twiml", twiml),
-            ("Timeout", str(max(5, int(self.settings.call_ring_timeout_seconds)))),  # Twilio wants whole seconds
-            ("StatusCallback", f"{public_base}/twilio/status?call_id={call_id}"),
-            ("StatusCallbackMethod", "POST"),
-        ]
-        for ev in ("initiated", "ringing", "answered", "completed"):
-            data.append(("StatusCallbackEvent", ev))
+        # A dict (list values repeat the key) is form-encoded; httpx treats a list of
+        # tuples as a raw sync byte stream, which an AsyncClient refuses to send.
+        data: dict[str, Union[str, list[str]]] = {
+            "To": to,
+            "From": self.settings.twilio_from_number or "",
+            "Twiml": twiml,
+            "Timeout": str(max(5, int(self.settings.call_ring_timeout_seconds))),  # Twilio wants whole seconds
+            "StatusCallback": f"{public_base}/twilio/status?call_id={call_id}",
+            "StatusCallbackMethod": "POST",
+            "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
+        }
         if self.settings.twilio_amd:
-            data += [
-                ("MachineDetection", "DetectMessageEnd"),
-                ("AsyncAmd", "true"),
-                ("AsyncAmdStatusCallback", f"{public_base}/twilio/amd?call_id={call_id}"),
-                ("AsyncAmdStatusCallbackMethod", "POST"),
-            ]
+            data.update({
+                "MachineDetection": "DetectMessageEnd",
+                "AsyncAmd": "true",
+                "AsyncAmdStatusCallback": f"{public_base}/twilio/amd?call_id={call_id}",
+                "AsyncAmdStatusCallbackMethod": "POST",
+            })
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(f"{self.base}/Calls.json", data=data, auth=self.auth)
         if resp.status_code >= 400:

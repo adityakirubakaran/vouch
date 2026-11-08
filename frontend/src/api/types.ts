@@ -252,6 +252,7 @@ export interface ReferenceOut {
   phone: string | null; // E.164
   phone_display: string | null;
   email: string | null;
+  call_channel: CallChannel | null; // this reference's line; null follows the application
   status: RefStatus;
   flagged: boolean;
   checks: PartyChecks | null;
