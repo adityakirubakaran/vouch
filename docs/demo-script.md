@@ -31,12 +31,13 @@ Open Harbor's evidence list.
 Harbor Paper rings the phone. (On the simulated line, its first attempt reaches voicemail: the panel shows the greeting, the short message Vouch left, and the retry countdown. Click **Call now** if you don't want to wait.) If the real call goes to voicemail, Vouch leaves the same message instead of starting the interview. The second person answers as Linda Park:
 
 - "This is Linda in accounts receivable. Sure, go ahead."
-- When asked for numbers: "Let me pull up the account, one second." Then: customer since 2022, Net 30.
+- When it checks that you handle Acme's account and have the details: "Yes, I handle their account. Let me pull it up, one second. Okay, I have it in front of me."
+- Customer since 2022, Net 30.
 - High credit about forty thousand, owes around twelve thousand four hundred.
 - Nothing past due, pays in about 28 days.
 - Yes, would extend more.
 
-> It says up front that it's an AI on a recorded line. The fields on the right fill in while she talks.
+> It says up front that it's an AI on a recorded line, and before any credit questions it confirms it's talking to someone who handles Acme's account and has the details in front of them. The fields on the right fill in while she talks.
 
 ## 4b. The follow-up (3:00 to 3:20)
 

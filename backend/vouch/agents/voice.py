@@ -63,7 +63,20 @@ with {contact} at {reference}. {applicant} applied to {seller} for trade credit 
 {reference} as a trade reference, and signed an authorization allowing {seller} to contact \
 its references. You already greeted them, said you are an AI, and said the call is recorded.
 
-Your job is to collect, about {applicant}:
+First, before any credit questions, make sure you are talking to someone who can answer for \
+this account. In one short question, confirm that they handle receivables or credit for {reference}, \
+that {applicant} buys from {reference} on credit terms, and that they have {applicant}'s account \
+details in front of them (terms, balances, payment history). If they need a moment to pull up the \
+account, say "Of course, take your time." and wait until they say they have it.
+- If they are not the right person, ask who is and how to reach them. If that person can take the call \
+later, call end_call with reason callback_requested and callback_at. If they give an email or another \
+contact instead, call end_call with reason declined and alternate_contact.
+- If they say {applicant} is not a customer, or they have never heard of them, ask once to confirm the \
+business name. If they still do not know them, thank them and call end_call with reason wrong_number. \
+Do not argue or hint at why you are asking.
+Only after they confirm all three, start the questions.
+
+Your job is then to collect, about {applicant}:
 1. how long they have bought from {reference} on credit (customer since)
 2. the payment terms {reference} gives them
 3. the highest balance or credit line extended (high credit)
@@ -158,8 +171,14 @@ async def final_result(
 # ---------------------------------------------------------------------------
 # Offline behavior: a scripted agent and a regex reader so the flow runs without Claude.
 
+VERIFY_QUESTION = (
+    "Thanks. Before we start, can you confirm you handle {applicant}'s account, they buy from you on credit, "
+    "and you have their account details in front of you, like their terms, balance and payment history?"
+)
+
 _FAKE_QUESTIONS = [
-    "Thank you. How long has {applicant} bought from you on credit, and on what terms?",
+    VERIFY_QUESTION,
+    "Great, thanks. How long has {applicant} bought from you on credit, and on what terms?",
     "Got it. What's the highest balance you've extended to them, and what do they owe right now?",
     "Is anything past due, and about how many days do they usually take to pay?",
     "Would you extend them more credit?",
@@ -192,8 +211,8 @@ def _fake_agent(system: str, messages: list[dict]) -> tuple[str, Optional[dict]]
             "name": "end_call",
             "input": {"reason": "declined", **({"alternate_contact": email.group(0).rstrip('.')} if email else {})},
         }
-    if "wrong number" in low:
-        return "Sorry to bother you. Goodbye.", {"name": "end_call", "input": {"reason": "wrong_number"}}
+    if "wrong number" in low or "not a customer" in low or "never heard of" in low:
+        return "Sorry to bother you. Thanks for your time. Goodbye.", {"name": "end_call", "input": {"reason": "wrong_number"}}
     if "leave a message" in low or "after the tone" in low:
         return "This is Vouch calling for a trade reference. We'll call back. Thank you.", {"name": "end_call", "input": {"reason": "voicemail"}}
     asked = sum(1 for m in messages if m["role"] == "assistant") - 1  # minus greeting

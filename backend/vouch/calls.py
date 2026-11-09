@@ -575,6 +575,7 @@ def _fake_persona(system: str, content: list[dict]) -> dict:
 
 GENERIC_SCRIPT = [
     "Accounts receivable. Sure, go ahead.",
+    "Yes, I handle that account and have it open.",
     "They've been a customer since 2021, on Net 30.",
     "High credit is about fifteen thousand. They owe around three thousand right now.",
     "Nothing past due. They pay in about 30 days.",

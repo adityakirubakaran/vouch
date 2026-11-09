@@ -209,3 +209,31 @@ async def test_claude_down_mid_call_ends_politely_and_calls_back(services):
         ref = s.get(Reference, failed[0].reference_id)
         assert ref.status == "completed" and ref.calls[-1].outcome == "completed"  # the callback worked
         assert app.decision["recommended_limit"] == 25000
+
+
+async def test_call_starts_by_verifying_the_reference_can_answer(services):
+    """Before any credit questions, the agent confirms it is talking to someone who
+    handles the applicant's account and has the details in front of them."""
+    app_id = submit_sample(services, "acme")
+    await wait_for_status(services, app_id, ("ready_for_review",), timeout=30)
+    with services.db.session() as s:
+        harbor = s.query(Reference).filter_by(application_id=app_id, company="Harbor Paper Co.").first()
+        answered = next(c for c in harbor.calls if c.outcome == "completed")
+        agent = [t["text"] for t in answered.transcript if t["role"] == "agent"]
+        reference = [t["text"] for t in answered.transcript if t["role"] == "reference"]
+    assert agent[1].startswith("Thanks. Before we start, can you confirm you handle Acme Bakery Supply's account")
+    assert "in front of me" in reference[1]
+    assert "since 2022" in reference[2]  # the credit questions only start after that
+
+
+def test_reference_that_does_not_know_the_applicant_ends_the_call():
+    from vouch.agents import voice
+    from vouch.llm import FAKE_VOICE
+
+    system = voice.system_prompt("Northline Supply", "Acme Bakery Supply", "Lakeside Cartons", "Sam")
+    messages = voice.opening_messages(voice.greeting("Northline Supply", "Acme Bakery Supply", "Sam")) + [
+        {"role": "user", "content": "Acme Bakery Supply? Sorry, I've never heard of them."}
+    ]
+    text, tool = FAKE_VOICE["agent"](system, messages)
+    assert tool == {"name": "end_call", "input": {"reason": "wrong_number"}}
+    assert "applicant" not in text.lower()  # no hint about why we asked

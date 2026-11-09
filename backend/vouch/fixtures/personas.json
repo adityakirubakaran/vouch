@@ -13,7 +13,7 @@
         },
         {
           "behavior": "answer",
-          "style": "Friendly but busy. The first time you are asked for numbers, say you need a second to pull up the account, then give them.",
+          "style": "Friendly but busy. When asked whether you have the account details, say you need a second to pull up the account, then confirm you have it.",
           "facts": {
             "customer_since": "2022",
             "terms": "Net 30",
@@ -27,7 +27,8 @@
           },
           "script": [
             "This is Linda in accounts receivable. Sure, go ahead.",
-            "Let me pull up the account, one second. Okay, they've bought from us on credit since 2022, on Net 30.",
+            "Yes, I handle their account. Let me pull it up, one second. Okay, I have it in front of me.",
+            "They've bought from us on credit since 2022, on Net 30.",
             "High credit is about forty thousand. Right now they owe around twelve thousand four hundred.",
             "Nothing is past due. They pay in about 28 days on average.",
             "Yes, we'd happily extend more. Good customer, they order every week.",
@@ -66,6 +67,7 @@
           },
           "script": [
             "Raj here. Thanks for calling back. Sure, go ahead.",
+            "Yes, I manage their account, and I have it up.",
             "They've been a customer since 2019, on Net 30 terms.",
             "High credit twenty thousand. Current balance is six thousand eight hundred.",
             "Nothing past due. Average is about 31 days, sometimes a few days late around the holidays.",
@@ -93,6 +95,7 @@
           },
           "script": [
             "Bayview Packaging! Oh yes, go ahead.",
+            "Yep, I've got their account right here.",
             "They've been with us forever, Net 60.",
             "High credit, I'd say a hundred thousand.",
             "Never late. They pay in about two weeks.",
@@ -121,6 +124,7 @@
           },
           "script": [
             "This is Ellen. Of course.",
+            "Yes, I handle Ridgeline's account. I have it open.",
             "Ridgeline's been with us since 2020, Net 15.",
             "High credit about eighteen thousand. They owe forty-two hundred right now.",
             "Nothing past due. They pay in about 14 days, right on time.",
@@ -159,6 +163,7 @@
           },
           "script": [
             "Marcus here. Yes, thanks for calling back.",
+            "Yes, I handle their account and I have it in front of me.",
             "Customer since 2021, Net 30.",
             "High credit twenty-five thousand. Current balance about nine thousand one hundred.",
             "Nothing past due. Right at 30 days on average.",
