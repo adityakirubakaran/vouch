@@ -373,3 +373,9 @@ def test_presenter_mode_waits_for_next_at_each_stage(client_factory):
     c.post(f"/api/applications/{app_id}/advance")
     wait_until(lambda: detail()["status"] == "ready_for_review", timeout=30)
     assert c.post(f"/api/applications/{app_id}/advance").status_code == 409
+
+
+def test_by_default_only_the_first_reference_rings_a_real_phone():
+    from vouch.config import Settings
+
+    assert Settings(_env_file=None).real_call_limit == 1

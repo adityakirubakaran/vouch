@@ -50,8 +50,9 @@ class Settings(BaseSettings):
     # Retry schedule for references that do not pick up.
     call_max_attempts: int = 3
     # With a real line (twilio or browser), only the first N references in form order
-    # use it and the rest are simulated. 0 means every reference uses the real line.
-    real_call_limit: int = 0
+    # use it and the rest are simulated, so a demo rings the phone once. 0 means every
+    # reference uses the real line.
+    real_call_limit: int = 1
     call_retry_seconds: float = 30  # demo-friendly; use hours in production
     call_ring_timeout_seconds: float = 45
     # Follow-ups: call back when the reference asked ("tomorrow morning"), and after

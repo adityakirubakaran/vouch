@@ -88,7 +88,7 @@ Without an API key, Vouch runs in offline mode: scripted responses that work onl
 
 ### Reference calls
 
-Set `CALL_CHANNEL` in `.env`, or switch per application on the review screen. Each reference's call panel also has its own **Line** switch, and `REAL_CALL_LIMIT=1` keeps every reference after the first on the simulated line, so a demo rings your phone once.
+Set `CALL_CHANNEL` in `.env`, or switch per application on the review screen. Each reference's call panel also has its own **Line** switch, and by default only the first reference uses a real line (`REAL_CALL_LIMIT=1`): the rest, including **Call now** on them, stay simulated, so a demo rings your phone once. Set `REAL_CALL_LIMIT=0` to call every reference for real.
 
 - `simulated` (default): Claude plays each reference from a persona in `backend/vouch/fixtures/personas.json`, including one who asks for a callback and one who only gives written references.
 - `browser`: open **Phone** in a second window. When Vouch calls, answer and talk (Chrome speech recognition) or type.
