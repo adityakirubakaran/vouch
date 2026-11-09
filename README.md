@@ -4,7 +4,7 @@ Vouch is an AI credit desk for B2B net terms. A customer sends in a credit appli
 
 Built by team AwesomeSauce (Aditya and Tommy) for the BBS × Ramp Hackathon (Fall 2026).
 
-**Demo video:** [watch the 5-minute demo](DEMO_VIDEO_URL)
+**Demo video:** [[watch the 5-minute demo]](https://youtu.be/Z9BdAew4kdY)
 
 ![Review screen with the recommended limit and cited evidence](docs/screenshots/review.png)
 
