@@ -46,6 +46,7 @@ async def config(request: Request) -> dict:
             "retry_seconds": st.call_retry_seconds,
             "ring_timeout_seconds": st.call_ring_timeout_seconds,
         },
+        "presenter_mode": st.presenter_mode,
         "email": {"mode": st.email_mode, "simulate_bank_reply_seconds": st.simulate_bank_reply_seconds},
         "registry": {"mode": st.registry_mode, "opencorporates": bool(st.opencorporates_api_token), "live_domain_checks": st.live_domain_checks},
         "phone_checks": {"ipqs": bool(st.ipqs_api_key), "twilio": st.twilio_lookup_configured, "google": bool(st.google_maps_api_key)},
@@ -124,7 +125,8 @@ def load_detail(s: Services, app_id: str) -> dict:
         steps = db.scalars(select(Step).where(Step.application_id == app_id).order_by(Step.created_at)).all()
         evidence = db.scalars(select(Evidence).where(Evidence.application_id == app_id).order_by(Evidence.created_at)).all()
         emails = db.scalars(select(Email).where(Email.application_id == app_id).order_by(Email.created_at)).all()
-        return out.detail_out(app, list(steps), list(evidence), list(emails), s.llm.mode, s.calls.resolve_channel(app.call_channel))
+        return out.detail_out(app, list(steps), list(evidence), list(emails), s.llm.mode, s.calls.resolve_channel(app.call_channel),
+                              presenter=s.settings.presenter_mode)
 
 
 @router.get("/applications/{app_id}")
@@ -204,6 +206,16 @@ async def retry_sync(request: Request, app_id: str) -> dict:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return load_detail(s, app_id)
+
+
+@router.post("/applications/{app_id}/advance")
+async def advance(request: Request, app_id: str) -> dict:
+    """Presenter mode: start the next held stage (references, calls, bank)."""
+    s = svc(request)
+    started = s.workflow.advance(app_id)  # type: ignore[union-attr]
+    if started is None:
+        raise HTTPException(409, "Nothing is waiting on the presenter")
+    return {"started": started}
 
 
 class ChannelBody(BaseModel):

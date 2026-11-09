@@ -347,3 +347,29 @@ def test_voicemail_on_a_real_call_is_not_treated_as_a_person(client_factory, fak
     assert len(agent) == 2 and agent[-1].get("voicemail_message")  # the greeting, then the message; no interview
     assert all(t.get("voicemail") for t in got["transcript"] if t["role"] == "reference")
     assert updates and "try you again later" in updates[0][1]  # Twilio plays it after the beep
+
+
+def test_presenter_mode_waits_for_next_at_each_stage(client_factory):
+    """With PRESENTER_MODE the demo pauses before the reference checks, the calls and
+    the bank email, and moves on only when the presenter presses Next."""
+    c = client_factory(presenter_mode=True)
+    assert c.get("/api/config").json()["presenter_mode"] is True
+    app_id = c.post("/api/applications/from-sample", json={"sample_id": "acme"}).json()["id"]
+    detail = lambda: c.get(f"/api/applications/{app_id}").json()  # noqa: E731
+
+    d = wait_until(lambda: (x := detail())["presenter"]["paused"] and x)
+    assert d["presenter"]["next"] == "Check the references" and d["extracted"] is not None
+    time.sleep(0.5)
+    assert all(r["checks"] is None for r in detail()["references"])  # nothing ran ahead
+
+    assert c.post(f"/api/applications/{app_id}/advance").json() == {"started": "Check the references"}
+    d = wait_until(lambda: (x := detail())["presenter"]["paused"] and x["presenter"]["next"] == "Start the reference calls" and x)
+    assert any(r["flagged"] for r in d["references"]) and all(not r["calls"] for r in d["references"])
+
+    c.post(f"/api/applications/{app_id}/advance")
+    d = wait_until(lambda: (x := detail())["presenter"]["paused"] and x["presenter"]["next"] == "Email the bank" and x, timeout=30)
+    assert d["emails"] == []  # the bank waits for its scene
+
+    c.post(f"/api/applications/{app_id}/advance")
+    wait_until(lambda: detail()["status"] == "ready_for_review", timeout=30)
+    assert c.post(f"/api/applications/{app_id}/advance").status_code == 409

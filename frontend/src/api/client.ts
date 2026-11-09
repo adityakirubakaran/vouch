@@ -59,6 +59,7 @@ export const api = {
   requestInfo: (id: string, message?: string) =>
     post<ApplicationDetail>(`/api/applications/${id}/request-info`, { message }),
   retrySync: (id: string) => post<ApplicationDetail>(`/api/applications/${id}/sync`),
+  advance: (id: string) => post<{ started: string }>(`/api/applications/${id}/advance`),
   setCallChannel: (id: string, channel: CallChannel) =>
     post<{ ok: boolean }>(`/api/applications/${id}/call-channel`, { channel }),
   simulateBankReply: (id: string) => post<{ email_id: string }>(`/api/applications/${id}/simulate-bank-reply`),

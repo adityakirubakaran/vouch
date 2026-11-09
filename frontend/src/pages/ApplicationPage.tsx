@@ -1,5 +1,7 @@
-import { ArrowLeft, Loader2 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../api/client";
+import type { ApplicationDetail } from "../api/types";
 import { Link, useParams } from "react-router-dom";
 import ActivityTab from "../components/ActivityTab";
 import ApplicationTab from "../components/ApplicationTab";
@@ -12,6 +14,44 @@ import { requestLine } from "../lib/format";
 import { useConfig, useLiveApplication } from "../lib/hooks";
 
 type Tab = "references" | "bank" | "application" | "activity";
+
+/** Presenter mode: the demo waits at each stage until the presenter moves it on, by
+ * clicking here or pressing the right arrow key, so it keeps pace with the voiceover. */
+function PresenterNext({ app, onStarted }: { app: ApplicationDetail; onStarted: (what: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const paused = app.presenter?.paused && !busy;
+  const go = useCallback(async () => {
+    if (!app.presenter?.paused || busy) return;
+    setBusy(true);
+    try {
+      const res = await api.advance(app.id);
+      onStarted(res.started);
+    } catch {
+      /* already moving; the next refresh shows where it is */
+    } finally {
+      window.setTimeout(() => setBusy(false), 1200);
+    }
+  }, [app.id, app.presenter?.paused, busy, onStarted]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.key === "ArrowRight" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        void go();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [go]);
+  if (!paused || !app.presenter.next) return null;
+  return (
+    <button className="presenter-next" onClick={() => void go()} title="Or press the right arrow key">
+      {app.presenter.next}
+      <ArrowRight size={16} strokeWidth={2.4} />
+    </button>
+  );
+}
 
 export default function ApplicationPage() {
   const { id = "" } = useParams();
@@ -91,7 +131,12 @@ export default function ApplicationPage() {
           <h1>{app.applicant_name ?? "Reading the application"}</h1>
           <p className="app-head-sub num">{requestLine(app.requested_limit, app.requested_terms)}</p>
         </div>
-        <StatusPill status={app.status} />
+        <div className="app-head-side">
+          {app.presenter?.paused ? <span className="pill outline">Paused</span> : <StatusPill status={app.status} />}
+          {app.presenter?.enabled ? (
+            <PresenterNext app={app} onStarted={(what) => setTab(what === "Email the bank" ? "bank" : "references")} />
+          ) : null}
+        </div>
       </div>
       {app.llm_mode === "fake" ? (
         <p className="offline-note">

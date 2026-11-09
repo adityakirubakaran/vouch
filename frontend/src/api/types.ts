@@ -361,6 +361,7 @@ export interface ApplicationDetail extends ApplicationSummary {
   document_url: string;
   llm_mode: "anthropic" | "fake";
   call_channel: CallChannel; // where this application's calls go (falls back to browser if Twilio is not set up)
+  presenter: { enabled: boolean; paused: boolean; next: string | null }; // PRESENTER_MODE: what Next starts
 }
 
 export interface ActivityEvent {
@@ -415,4 +416,5 @@ export interface AppConfig {
   registry: { mode: "sandbox" | "opencorporates"; opencorporates: boolean; live_domain_checks: boolean };
   phone_checks: { ipqs: boolean; twilio: boolean; google: boolean };
   accounting: { mode: "ledger" | "quickbooks"; connected: boolean; realm_id?: string | null; environment?: string };
+  presenter_mode: boolean;
 }

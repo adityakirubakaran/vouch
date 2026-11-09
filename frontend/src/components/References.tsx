@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { AppConfig, ApplicationDetail, CallChannel, CallOut, ReferenceFindings, ReferenceOut, ReferenceScore } from "../api/types";
 import { CHANNEL_LABEL, OUTCOME_LABEL, REF_STATUS_LABEL, countdown, duration, money } from "../lib/format";
 import { type LiveCallState, mergedTranscript, useNow } from "../lib/hooks";
+import { heldForPresenter } from "./Pipeline";
 
 // --------------------------------------------------------------- channel
 
@@ -115,7 +116,7 @@ function Factors({ score, startOpen }: { score: ReferenceScore; startOpen: boole
   );
 }
 
-export function VerificationCard({ r }: { r: ReferenceOut }) {
+export function VerificationCard({ r, upNext = false }: { r: ReferenceOut; upNext?: boolean }) {
   const rows = r.checks?.rows ?? [];
   const score = r.checks?.score;
   const signals = (r.checks?.signals ?? []).filter((s) => s.severity !== "info");
@@ -124,6 +125,8 @@ export function VerificationCard({ r }: { r: ReferenceOut }) {
       <div className="row gap-8">
         {r.checks ? (
           <span className={`pill ${r.flagged ? "lime" : "ink"}`}>{r.flagged ? "Flagged" : "Verified"}</span>
+        ) : upNext ? (
+          <span className="pill outline">Not checked yet</span>
         ) : (
           <span className="pill outline">
             <Loader2 size={12} className="spin" /> Checking
@@ -430,7 +433,7 @@ export default function ReferencesTab({
       ) : (
         <div className="ref-grid">
           {app.references.map((r) => (
-            <VerificationCard key={r.id} r={r} />
+            <VerificationCard key={r.id} r={r} upNext={app.steps.some((s) => s.kind === "verify" && heldForPresenter(s))} />
           ))}
         </div>
       )}

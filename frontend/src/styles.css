@@ -626,3 +626,36 @@ p {
     font-size: 28px;
   }
 }
+
+/* ------------------------------------------------------------ presenter */
+
+.app-head-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.presenter-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 18px 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.presenter-next svg {
+  color: var(--lime);
+}
+
+.presenter-next:hover {
+  background: var(--dark);
+}

@@ -25,6 +25,11 @@ function fromStep(step: StepOut | undefined): NodeState {
   return map[step.status];
 }
 
+/** Held in presenter mode until the presenter presses Next. */
+export function heldForPresenter(step: StepOut | undefined): boolean {
+  return Boolean(step && step.status === "waiting" && step.wait_reason?.startsWith("Paused for the presenter"));
+}
+
 function secondsUntil(iso: string | null, now: number): number | null {
   if (!iso) return null;
   return (new Date(iso).getTime() - now) / 1000;
@@ -57,18 +62,29 @@ export function buildNodes(app: ApplicationDetail, now: number): Node[] {
             : "",
   });
 
-  const ve = fromStep(verify);
+  const ve = heldForPresenter(verify) ? "pending" : fromStep(verify);
   const flagged = app.references.filter((r) => r.flagged).length;
   nodes.push({
     key: "verify",
     label: "Verify",
     state: ve,
-    detail: ve === "done" ? (flagged ? `${flagged} flagged` : "All check out") : ve === "active" ? "Checking records" : "",
+    detail: heldForPresenter(verify)
+      ? "Up next"
+      : ve === "done"
+        ? flagged
+          ? `${flagged} flagged`
+          : "All check out"
+        : ve === "active"
+          ? "Checking records"
+          : "",
   });
 
   let callState: NodeState = "pending";
   let callDetail = "";
-  if (calls.length > 0) {
+  if (calls.length > 0 && calls.every(heldForPresenter)) {
+    callState = "pending";
+    callDetail = "Up next";
+  } else if (calls.length > 0) {
     const states = calls.map(fromStep);
     const finished = calls.filter((c) => ["done", "skipped", "failed"].includes(c.status)).length;
     if (finished === calls.length) {
@@ -94,17 +110,20 @@ export function buildNodes(app: ApplicationDetail, now: number): Node[] {
   }
   nodes.push({ key: "calls", label: "Call references", state: callState, detail: callDetail });
 
-  const ba = fromStep(bank);
+  const bankHeld = heldForPresenter(bank);
+  const ba = bankHeld ? "pending" : fromStep(bank);
   nodes.push({
     key: "bank",
     label: "Bank reply",
-    state: ba === "waiting" ? "active" : ba,
+    state: bankHeld ? "pending" : ba === "waiting" ? "active" : ba,
     detail:
       ba === "done"
         ? app.bank?.status === "no_reply"
           ? "No reply"
           : "Replied"
-        : ba === "waiting"
+        : bankHeld
+          ? "Up next"
+          : ba === "waiting"
           ? "Email sent, waiting"
           : ba === "skipped"
             ? "No bank listed"

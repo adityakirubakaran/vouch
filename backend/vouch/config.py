@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     quickbooks_client_secret: Optional[str] = None
     quickbooks_environment: Literal["sandbox", "production"] = "sandbox"
 
+    # Presenter mode: pause before checking references, before calling, and before
+    # emailing the bank, until the presenter presses Next (or the right arrow key).
+    presenter_mode: bool = False
+
     # Speeds up simulated calls (rings, pauses) in tests; 1.0 is real time.
     sim_time_scale: float = 1.0
 

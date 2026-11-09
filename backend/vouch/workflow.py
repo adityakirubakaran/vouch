@@ -51,6 +51,14 @@ log = logging.getLogger("vouch.workflow")
 
 MAX_CALL_SECONDS = 600
 
+# Presenter mode gates: step kind -> (order, what pressing Next starts).
+PRESENTER_STAGES = {
+    "verify": (1, "Check the references"),
+    "call": (2, "Start the reference calls"),
+    "bank": (3, "Email the bank"),
+}
+PRESENTER_WAIT = "Paused for the presenter"
+
 
 class Workflow:
     def __init__(self, services: "Services") -> None:
@@ -166,7 +174,38 @@ class Workflow:
         )
         return Done({"trade_references": n, "issues": len(application.issues)})
 
-    async def verify(self, ctx: StepContext) -> Done:
+    def _presenter_hold(self, ctx: StepContext, stage: str) -> Optional[Wait]:
+        """In presenter mode, hold this stage until the presenter presses Next, so the
+        demo moves at the speed of the voiceover. Once released, it stays released."""
+        if not self.s.settings.presenter_mode or ctx.state.get("released"):
+            return None
+        if ctx.signal and (ctx.signal.get("advance") or ctx.signal.get("run_now")):
+            ctx.state["released"] = True
+            return None
+        return Wait(f"{PRESENTER_WAIT}: next, {PRESENTER_STAGES[stage][1].lower()}")
+
+    def advance(self, application_id: str) -> Optional[str]:
+        """Release the next held stage of an application (presenter mode). Returns what
+        it started, or None if nothing is waiting on the presenter."""
+        with self.s.db.session() as s:
+            held = [
+                (PRESENTER_STAGES[st.kind][0], st.id, st.kind)
+                for st in s.scalars(select(Step).where(Step.application_id == application_id, Step.status == "waiting")).all()
+                if st.kind in PRESENTER_STAGES and (st.wait_reason or "").startswith(PRESENTER_WAIT)
+            ]
+        if not held:
+            return None
+        rank = min(r for r, _, _ in held)
+        for r, step_id, _ in held:
+            if r == rank:
+                self.s.engine.signal(step_id, {"advance": True})
+        label = next(PRESENTER_STAGES[k][1] for r, _, k in held if r == rank)
+        self.s.bus.publish("presenter.advanced", label, application_id=application_id, persist=False)
+        return label
+
+    async def verify(self, ctx: StepContext):
+        if (held := self._presenter_hold(ctx, "verify")) is not None:
+            return held
         self._status(ctx.application_id, "verifying", "Checking public records")
         policy = load_policy()
         _, application = self._application(ctx.application_id)
@@ -273,6 +312,8 @@ class Workflow:
         return out
 
     async def call(self, ctx: StepContext):
+        if (held := self._presenter_hold(ctx, "call")) is not None:
+            return held
         st = self.s.settings
         state = ctx.state
         active = state.get("active_call")
@@ -389,6 +430,8 @@ class Workflow:
         return Retry(after_seconds=nxt.after_seconds, reason=nxt.reason)
 
     async def bank(self, ctx: StepContext):
+        if (held := self._presenter_hold(ctx, "bank")) is not None:
+            return held
         with self.s.db.session() as s:
             ref = s.scalars(select(Reference).where(Reference.application_id == ctx.application_id, Reference.kind == "bank")).first()
             if ref is None:

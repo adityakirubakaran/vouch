@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from ..db import Application, Call, Email, Evidence, Reference, Step
 from ..util import format_phone
+from ..workflow import PRESENTER_STAGES, PRESENTER_WAIT
 
 
 def iso(value: Any) -> Optional[str]:
@@ -116,7 +117,25 @@ def summary_out(a: Application) -> dict:
     }
 
 
-def detail_out(a: Application, steps: list[Step], evidence: list[Evidence], emails: list[Email], llm_mode: str, default_channel: str) -> dict:
+def presenter_out(enabled: bool, steps: list[Step]) -> dict:
+    """What the presenter's Next button would start, if the demo is paused on them.
+    Hidden while something is still running, so Next can't skip ahead of a stage."""
+    if not enabled:
+        return {"enabled": False, "paused": False, "next": None}
+    held = [s for s in steps if s.status == "waiting" and s.kind in PRESENTER_STAGES
+            and (s.wait_reason or "").startswith(PRESENTER_WAIT)]
+    # Still working: something running, or a stage about to run. (A memo that is
+    # pending on its dependencies is not busy; it is waiting like everyone else.)
+    busy = any(s.status == "running" or (s.status == "pending" and s.next_run_at is None and s.kind in ("extract", *PRESENTER_STAGES))
+               for s in steps)
+    if not held or busy:
+        return {"enabled": True, "paused": False, "next": None}
+    first = min(held, key=lambda s: PRESENTER_STAGES[s.kind][0])
+    return {"enabled": True, "paused": True, "next": PRESENTER_STAGES[first.kind][1]}
+
+
+def detail_out(a: Application, steps: list[Step], evidence: list[Evidence], emails: list[Email], llm_mode: str, default_channel: str,
+               presenter: bool = False) -> dict:
     by_ref = {s.reference_id: s for s in steps if s.reference_id}
     bank_step = next((s for s in steps if s.kind == "bank"), None)
     refs = [reference_out(r, by_ref.get(r.id)) for r in a.references if r.kind == "trade"]
@@ -137,4 +156,5 @@ def detail_out(a: Application, steps: list[Step], evidence: list[Evidence], emai
         "document_url": f"/api/applications/{a.id}/document",
         "llm_mode": llm_mode,
         "call_channel": a.call_channel or default_channel,
+        "presenter": presenter_out(presenter, steps),
     }
