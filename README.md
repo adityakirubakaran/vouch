@@ -2,9 +2,34 @@
 
 Vouch is an AI credit desk for B2B net terms. A customer sends in a credit application, and Vouch reads it, checks the business and its references against public records, phones each trade reference, emails the bank, and hands a credit analyst a finished memo with a recommended limit. The analyst approves in one click and the customer is created in QuickBooks.
 
-Built by team AwesomeSauce for the BBS × Ramp Hackathon (Fall 2026).
+Built by team AwesomeSauce (Aditya and Tommy) for the BBS × Ramp Hackathon (Fall 2026).
+
+**Demo video:** [watch the 5-minute demo](DEMO_VIDEO_URL)
 
 ![Review screen with the recommended limit and cited evidence](docs/screenshots/review.png)
+
+## Try it in two minutes
+
+No API keys needed. With Python 3.10+ and Node 18+:
+
+```bash
+make setup    # backend virtualenv, frontend packages, .env
+make dev      # open http://localhost:5173
+```
+
+Click **New application**, then **Run** on Acme Bakery Supply. Without a key, Claude's parts run from scripted responses for the two bundled samples, and the whole pipeline plays out in a minute or two: Bayview Packaging is flagged as a fake reference, Harbor Paper's first call reaches voicemail and the retry connects, and Coastal Flour Mills asks to be called back tomorrow morning. Click **Call now** on Coastal's panel to pull that forward; then the bank replies and the memo recommends $25,000 against the $30,000 requested. Add `ANTHROPIC_API_KEY` to `.env` and restart to run it with Claude, including on your own scans. `make test` runs the 80 backend tests.
+
+### What's real and what's simulated
+
+| Real in the demo | Simulated, and labeled as such in the app |
+|---|---|
+| Claude Sonnet 5.5 reading the hand-filled scan | The demo companies are fictional, so their state records, domains, websites and phone records come from a sandbox file, marked "(sandbox)" |
+| The authenticity scorecard and every rule behind it | Coastal Flour Mills' reference, played by Claude from a persona (`REAL_CALL_LIMIT=1` keeps the real phone line to one call) |
+| The voice agent on a real phone call through Twilio ConversationRelay, answered by a teammate | The bank's reply email (the request goes to an outbox, not sent) |
+| Voicemail detection, callback scheduling, and the durable workflow engine | QuickBooks, which writes to a local ledger unless a sandbox company is connected in Settings |
+| The credit policy math and the memo's checked citations | |
+
+With keys set, the same code calls OpenCorporates, RDAP, IPQualityScore, Twilio Lookup and Google Places for real companies, sends email over SMTP, and creates the customer in a QuickBooks sandbox.
 
 ## The problem
 
@@ -43,7 +68,7 @@ flowchart LR
 
 ![Reference checks: two references score 99, the fake one scores 1 and is flagged](docs/screenshots/reference-checks.png)
 
-![A live reference call with the credit file filling in](docs/screenshots/live-call.png)
+![A live reference call: the agent checks it has the right person, and the credit file fills in as she talks](docs/screenshots/live-call.png)
 
 ## Design decisions
 
@@ -76,13 +101,13 @@ Requirements: Python 3.10+, Node 18+. macOS: `brew install python@3.12 node`.
 
 ```bash
 make setup        # backend virtualenv, frontend packages, .env
-# add ANTHROPIC_API_KEY to .env
+# add ANTHROPIC_API_KEY to .env (optional: without it, Vouch runs offline)
 make dev          # http://localhost:5173
 ```
 
-Click **New application**, then run the **Acme Bakery Supply** sample. In a minute or two Vouch reads the scan, flags Bayview Packaging (registered 23 days ago, on the applicant's own phone line and address, sharing the applicant's owner as an officer), calls Harbor Paper (voicemail, then a retry that connects) and Coastal Flour Mills (Raj asks for a callback tomorrow morning; click **Call now** on his panel to pull it forward), gets the bank's reply, and recommends $25,000 on Net 30 against the $30,000 requested. Approve it and the customer is written to the ledger (or QuickBooks).
+Run the **Acme Bakery Supply** sample as above. Vouch reads the scan, flags Bayview Packaging (registered 23 days ago, on the applicant's own phone line and address, sharing the applicant's owner as an officer), calls Harbor Paper and Coastal Flour Mills, gets the bank's reply, and recommends $25,000 on Net 30. Approve it and the customer is written to the ledger (or QuickBooks). The second sample, Ridgeline Cafe Group, is a clean file where one reference only gives written references.
 
-For a recorded or live demo, set `PRESENTER_MODE=true`: Vouch pauses before checking references, before calling, and before emailing the bank, and a Next button (or the right arrow key) moves it on, so the app keeps pace with your narration.
+For a recorded or live demo, set `PRESENTER_MODE=true`: Vouch pauses before checking references, before calling, and before emailing the bank, and a Next button (or the right arrow key) moves it on, so the app keeps pace with your narration. `docs/demo-script.md` is the script we recorded with.
 
 Without an API key, Vouch runs in offline mode: scripted responses that work only with the two bundled samples. This is also how the test suite runs.
 
@@ -113,7 +138,7 @@ Create an app at developer.intuit.com, add `http://localhost:8000/api/integratio
 make test
 ```
 
-The backend suite (79 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
+The backend suite (80 tests, about 25 seconds, no API key) covers the workflow engine (waits, signals, retries, timeouts, restart recovery), the fraud rules and credit policy math, full application runs for both samples, the REST API, the browser phone and Twilio ConversationRelay protocols over real WebSockets, Twilio webhook signature checks, TwiML generation, how the Claude client handles the 5.5 models' tool-choice rules, and the failure paths of a live call: Twilio refusing to dial, a busy signal while dialing, a late answer on a call that already ended, a reference hanging up halfway, and Claude erroring in the middle of a reply.
 
 `make smoke` is the live check: with your API key it has Claude read both sample scans and compares every field with the answer key, then runs one application end to end.
 
@@ -123,8 +148,9 @@ The backend suite (79 tests, about 25 seconds, no API key) covers the workflow e
 backend/vouch/
   engine.py            durable step engine (SQLite)
   workflow.py          the credit check graph and its step handlers
-  calls.py             call placement, ConversationRelay session, simulated reference
-  agents/              extraction, verification, voice, bank, decision
+  calls.py             call placement, ConversationRelay session, voicemail, simulated reference
+  followup.py          callback times ("tomorrow morning") and next-day follow-ups
+  agents/              extraction, verification, authenticity scoring, voice, bank, decision
   providers/           registry/domain/website lookups, Twilio, email, QuickBooks/ledger
   policy/credit_policy.yaml
   fixtures/            sample answer keys, sandbox records, reference personas
