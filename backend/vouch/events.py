@@ -10,6 +10,9 @@ from typing import Any, Optional
 from .db import Database, EventRow, utcnow
 
 
+CLOSE = "__close__"  # sentinel event: the stream should end
+
+
 @dataclass
 class Subscriber:
     queue: "asyncio.Queue[dict]"
@@ -26,6 +29,17 @@ class EventBus:
         sub = Subscriber(queue=asyncio.Queue(maxsize=1000), application_id=application_id, loop=asyncio.get_running_loop())
         self.subscribers.append(sub)
         return sub
+
+    def close_all(self) -> None:
+        """End every live stream (server shutting down). Safe to call from a signal
+        handler: it only schedules work on each subscriber's loop."""
+        for sub in list(self.subscribers):
+            if sub.loop is None:
+                continue
+            try:
+                sub.loop.call_soon_threadsafe(sub.queue.put_nowait, {"type": CLOSE})
+            except RuntimeError:  # loop already closed
+                pass
 
     def unsubscribe(self, sub: Subscriber) -> None:
         if sub in self.subscribers:

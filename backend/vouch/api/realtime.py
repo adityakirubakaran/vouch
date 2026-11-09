@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from ..calls import WebSocketTransport
+from ..events import CLOSE
 from ..providers.twilio_client import valid_signature
 from ..services import Services
 
@@ -36,6 +37,8 @@ async def stream(request: Request, application_id: Optional[str] = None) -> Stre
                     break
                 try:
                     event = await asyncio.wait_for(sub.queue.get(), timeout=15)
+                    if event.get("type") == CLOSE:
+                        break  # server is shutting down
                     yield f"data: {json.dumps(event, default=str)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"

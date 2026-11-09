@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -19,6 +20,25 @@ from . import realtime, routes
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 
+def _close_streams_on_exit(svc) -> None:
+    """On Ctrl+C, uvicorn waits for open connections to finish before it shuts down,
+    and the review screen's live-update stream never finishes on its own. Close those
+    streams as soon as the signal arrives, so one Ctrl+C exits cleanly."""
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        previous = signal.getsignal(sig)
+        if not callable(previous):
+            continue
+
+        def handler(signum, frame, previous=previous):
+            svc.bus.close_all()
+            previous(signum, frame)
+
+        try:
+            signal.signal(sig, handler)
+        except ValueError:  # not the main thread (tests run the app in a worker thread)
+            return
+
+
 def create_app(settings: Optional[Settings] = None, services: Optional[Services] = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -29,6 +49,7 @@ def create_app(settings: Optional[Settings] = None, services: Optional[Services]
         app.state.services = svc
         if settings.start_engine:
             await start_services(svc)
+        _close_streams_on_exit(svc)
         logging.getLogger("vouch").info(
             "Vouch ready: Claude %s, calls %s, email %s, accounting %s",
             svc.llm.mode, svc.calls.resolve_channel(None), settings.email_mode, svc.accounting.mode,
